@@ -16,7 +16,7 @@ Built for farming, collecting, or any situation where you need to keep an eye on
 
 ## Installation
 
-**Recommended:** install via [CurseForge]([https://www.curseforge.com/wow/addons/itemwatch](https://www.curseforge.com/wow/addons/itemwatch-bag-item-counter)) *(link once approved)*
+**Recommended:** install via [CurseForge]([https://www.curseforge.com/wow/addons/itemwatch](https://www.curseforge.com/wow/addons/itemwatch-bag-item-counter])
 
 **Manual install:**
 1. Download the latest release, or clone this repo
