@@ -1,0 +1,8 @@
+## Interface: 120007
+## Title: ItemWatch
+## Notes: Movable icon + count displays for tracking specific items in your bags
+## Author: You
+## Version: 1.0
+## SavedVariables: ItemWatchDB
+
+ItemWatch.lua
