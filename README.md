@@ -1,9 +1,7 @@
 # Itemwatch
 A WoW addon for tracking item counts in your bags with movable icon+count displays
 
-# ItemWatch
-
-A lightweight World of Warcraft addon for tracking specific item counts in your bags — movable icon + number displays you can drop anywhere on screen.
+Itemwatch is a lightweight World of Warcraft addon for tracking specific item counts in your bags — movable icon + number displays you can drop anywhere on screen.
 
 Built for farming, collecting, or any situation where you need to keep an eye on an exact item count without repeatedly opening your bags.
 
