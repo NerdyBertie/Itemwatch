@@ -23,10 +23,13 @@ Recommended: install via CurseForge
 Manual install:
 
 Download the latest release, or clone this repo
+
 Copy the ItemWatch folder into your WoW AddOns directory: World of Warcraft/_retail_/Interface/AddOns/
 Restart WoW or /reload
+
 Usage
 Command	Description
+
 Ctrl+Shift+Click an item in bags	Add it directly, no item ID needed
 /iw add <itemID>	Start tracking an item
 /iw remove <itemID>	Stop tracking an item
