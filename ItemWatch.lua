@@ -9,6 +9,30 @@ local defaults = {
 local frames = {}    -- itemID -> frame
 local FRAME_SIZE = 36
 
+-- Plays a short "goal reached" chime
+local function PlayGoalSound()
+    PlaySoundFile("Sound\\Interface\\LevelUp2.ogg", "Master")
+end
+
+-- Confirmation popup for clearing every tracked item at once
+StaticPopupDialogs["ITEMWATCH_CONFIRM_CLEAR"] = {
+    text = "Clear ALL ItemWatch tracked items on this character?",
+    button1 = "Clear All",
+    button2 = "Cancel",
+    OnAccept = function()
+        for _, f in pairs(frames) do
+            f:Hide()
+        end
+        wipe(frames)
+        wipe(ItemWatchDB.items)
+        print("|cff00ff00ItemWatch:|r cleared all tracked items.")
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
 -- Fills in any missing keys in dst using values from src (used to init/upgrade the DB)
 local function CopyDefaults(src, dst)
     for k, v in pairs(src) do
@@ -35,7 +59,7 @@ local function CreateItemFrame(entry)
     f.icon:SetAllPoints(f)
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trims the default icon border
 
-    f.count = f:CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
+    f.count = f:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     f.count:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, 2)
 
     f:SetScript("OnDragStart", function(self)
@@ -73,7 +97,28 @@ local function RefreshFrame(entry)
     end
 
     local count = C_Item.GetItemCount(entry.id, false, false, true)
-    f.count:SetText(count)
+
+    if entry.goal then
+        f.count:SetText(count.."/"..entry.goal)
+
+        if count >= entry.goal then
+            f.count:SetTextColor(0.2, 1, 0.2) -- green once goal is met
+            if not entry.goalReached then
+                entry.goalReached = true
+                if entry.soundEnabled then
+                    PlayGoalSound()
+                end
+                print("|cff00ff00ItemWatch:|r goal reached for "..(GetItemInfo(entry.id) or ("item #"..entry.id))..
+                      " ("..count.."/"..entry.goal..")")
+            end
+        else
+            f.count:SetTextColor(1, 1, 1) -- back to white if below goal again
+            entry.goalReached = false
+        end
+    else
+        f.count:SetText(count)
+        f.count:SetTextColor(1, 1, 1)
+    end
 end
 
 local function RefreshAll()
@@ -90,12 +135,25 @@ local function AddItem(itemID)
         end
     end
 
-    local entry = { id = itemID, point = "CENTER", x = 0, y = 0 }
+    local entry = { id = itemID, point = "CENTER", x = 0, y = 0, goal = nil, soundEnabled = true, goalReached = false }
     table.insert(ItemWatchDB.items, entry)
     frames[itemID] = CreateItemFrame(entry)
     RefreshFrame(entry)
     print("|cff00ff00ItemWatch:|r now tracking item "..itemID..". Type /iw unlock to drag it into place.")
 end
+
+-- Ctrl+Shift+Click an item in your default bags to add it, instead of typing the item ID manually.
+-- Only works with Blizzard's default bag UI, since bag-replacement addons build their own click handling.
+hooksecurefunc("ContainerFrameItemButton_OnModifiedClick", function(self, button)
+    if IsControlKeyDown() and IsShiftKeyDown() then
+        local bagID = self:GetParent():GetID()
+        local slotID = self:GetID()
+        local info = C_Container.GetContainerItemInfo(bagID, slotID)
+        if info and info.itemID then
+            AddItem(info.itemID)
+        end
+    end
+end)
 
 local function RemoveItem(itemID)
     for i, entry in ipairs(ItemWatchDB.items) do
@@ -110,6 +168,47 @@ local function RemoveItem(itemID)
         end
     end
     print("|cffff8800ItemWatch:|r item "..itemID.." wasn't being tracked.")
+end
+
+local function FindEntry(itemID)
+    for _, entry in ipairs(ItemWatchDB.items) do
+        if entry.id == itemID then return entry end
+    end
+    return nil
+end
+
+local function SetGoal(itemID, amount)
+    local entry = FindEntry(itemID)
+    if not entry then
+        print("|cffff8800ItemWatch:|r item "..itemID.." isn't tracked yet. Use /iw add "..itemID.." first.")
+        return
+    end
+    entry.goal = amount
+    entry.goalReached = false
+    RefreshFrame(entry)
+    print("|cff00ff00ItemWatch:|r goal for item "..itemID.." set to "..amount)
+end
+
+local function ClearGoal(itemID)
+    local entry = FindEntry(itemID)
+    if not entry then
+        print("|cffff8800ItemWatch:|r item "..itemID.." isn't tracked.")
+        return
+    end
+    entry.goal = nil
+    entry.goalReached = false
+    RefreshFrame(entry)
+    print("|cff00ff00ItemWatch:|r goal cleared for item "..itemID)
+end
+
+local function ToggleSound(itemID, state)
+    local entry = FindEntry(itemID)
+    if not entry then
+        print("|cffff8800ItemWatch:|r item "..itemID.." isn't tracked.")
+        return
+    end
+    entry.soundEnabled = state
+    print("|cff00ff00ItemWatch:|r sound "..(state and "enabled" or "disabled").." for item "..itemID)
 end
 
 -- Event handling
@@ -158,14 +257,41 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         else
             for _, entry in ipairs(ItemWatchDB.items) do
                 local name = GetItemInfo(entry.id) or ("Item #"..entry.id)
-                print("  - "..name.." ("..entry.id..")")
+                local goalText = entry.goal and (" - goal: "..entry.goal) or ""
+                print("  - "..name.." ("..entry.id..")"..goalText)
             end
+        end
+    elseif cmd == "clear" or cmd == "clearall" then
+        StaticPopup_Show("ITEMWATCH_CONFIRM_CLEAR")
+    elseif cmd == "goal" then
+        local id, amount = rest:match("^(%d+)%s+(%S+)$")
+        id = tonumber(id)
+        if not id then
+            print("Usage: /iw goal <itemID> <amount>  OR  /iw goal <itemID> clear")
+        elseif amount == "clear" then
+            ClearGoal(id)
+        else
+            local amt = tonumber(amount)
+            if amt then SetGoal(id, amt) else print("Usage: /iw goal <itemID> <amount>") end
+        end
+    elseif cmd == "sound" then
+        local id, state = rest:match("^(%d+)%s+(%S+)$")
+        id = tonumber(id)
+        if not id or (state ~= "on" and state ~= "off") then
+            print("Usage: /iw sound <itemID> on|off")
+        else
+            ToggleSound(id, state == "on")
         end
     else
         print("|cff00ff00ItemWatch commands:|r")
-        print("  /iw add <itemID>    - start tracking an item")
-        print("  /iw remove <itemID> - stop tracking an item")
-        print("  /iw list            - list tracked items")
-        print("  /iw lock / unlock   - lock or unlock frame positions")
+        print("  (Ctrl+Shift+Click an item in your bags to add it directly)")
+        print("  /iw add <itemID>            - start tracking an item")
+        print("  /iw remove <itemID>         - stop tracking an item")
+        print("  /iw list                    - list tracked items")
+        print("  /iw clear                   - remove ALL tracked items (asks to confirm)")
+        print("  /iw lock / unlock           - lock or unlock frame positions")
+        print("  /iw goal <itemID> <amount>  - set a target amount (shows count/goal, turns green when met)")
+        print("  /iw goal <itemID> clear     - remove the goal")
+        print("  /iw sound <itemID> on|off   - toggle the goal-reached sound for that item")
     end
 end
