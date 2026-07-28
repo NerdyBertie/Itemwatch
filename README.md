@@ -10,7 +10,7 @@ Ctrl+Shift+Click an item in your bags to add it directly (default Blizzard bag U
 Movable, draggable frames — position them wherever fits your UI
 Character-specific tracking — each character keeps their own list
 Optional goals — set a target amount, the display shows count/goal and turns green when met
-Optional sound alert when a goal is reached, toggleable per item
+Optional sound alert when a goal is reached, with a full in-game settings panel to pick your sound
 Clear all tracked items at once, with a confirmation prompt
 Auto-updates whenever your bag contents change
 Lock/unlock frame positions so you don't accidentally bump them
@@ -37,6 +37,8 @@ Ctrl+Shift+Click an item in bags	Add it directly, no item ID needed
 /iw goal <itemID> <amount>	Set a target amount for an item
 /iw goal <itemID> clear	Remove the goal for an item
 /iw sound <itemID> on|off	Toggle the goal-reached sound for an item
+/iw testsound	Preview the current goal sound
+/iw options	Open the settings panel
 Quick start
 Find an item on Wowhead and grab its item ID from the URL, or just Ctrl+Shift+Click it in your bags
 /iw add <itemID> (skip this if you used the click method)
@@ -49,13 +51,13 @@ Optionally, set a goal so the icon shows your progress and dings when you hit it
 
 The count updates automatically as your bags change.
 
+Settings
+
+Find ItemWatch's settings under Options > AddOns > ItemWatch in-game, or type /iw options. From there you can pick your goal-reached sound from a few presets (Peon "Work Complete!", Ready Check, Achievement Chime, Coin Sound), or enter a custom sound FileDataID of your own — find one at wago.tools/files or browse wowhead.com/sounds for something easier to search.
+
 Notes
 Tracked items are saved per-character, so each character keeps their own independent list
 The Ctrl+Shift+Click add-from-bags shortcut only works with Blizzard's default bag UI. If you use a bag-replacement addon (Baganator, ArkInventory, Bagnon, etc.), use /iw add <itemID> instead
-Screenshots
-
-(add your screenshots here once uploaded)
-
 Contributing / Issues
 
 Found a bug or have a feature idea? Open an issue — feedback and suggestions welcome.
@@ -63,3 +65,6 @@ Found a bug or have a feature idea? Open an issue — feedback and suggestions w
 License
 
 MIT — see LICENSE for details.
+
+
+If you find ItemWatch useful, consider supporting me on Ko-fi — totally optional, but always appreciated! You can also find me on Twitch or YouTube - NerdyBertie
