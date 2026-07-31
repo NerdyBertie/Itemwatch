@@ -25,6 +25,7 @@ Manual install:
 Download the latest release, or clone this repo.
 Copy the ItemWatch folder (including the Libs subfolder) into your WoW AddOns directory: World of Warcraft/_retail_/Interface/AddOns/
 Restart WoW or /reload.
+
 Usage
 
 The easy way:
