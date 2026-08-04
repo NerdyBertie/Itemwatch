@@ -161,6 +161,35 @@ local function CreateItemBox()
     end)
     addBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- Lock/unlock toggle button, does the same thing as /iw lock and
+    -- /iw unlock but visually shows the current state at a glance
+    local lockBtn = CreateFrame("Button", nil, titleBar)
+    lockBtn:SetSize(21, 21)
+    lockBtn:SetPoint("RIGHT", addBtn, "LEFT", -2, 0)
+    lockBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+
+    local function UpdateLockIcon()
+        if ItemWatchDB.locked then
+            lockBtn:SetNormalTexture("Interface\\Buttons\\LockButton-Locked-Up")
+        else
+            lockBtn:SetNormalTexture("Interface\\Buttons\\LockButton-Unlocked-Up")
+        end
+    end
+    box.UpdateLockIcon = UpdateLockIcon
+    UpdateLockIcon()
+
+    lockBtn:SetScript("OnClick", function()
+        ItemWatchDB.locked = not ItemWatchDB.locked
+        UpdateLockIcon()
+        print("|cff00ff00ItemWatch:|r box "..(ItemWatchDB.locked and "locked" or "unlocked"))
+    end)
+    lockBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(ItemWatchDB.locked and "Unlock box" or "Lock box")
+        GameTooltip:Show()
+    end)
+    lockBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     titleBar:SetScript("OnDragStart", function()
         if not ItemWatchDB.locked then
             box:StartMoving()
@@ -1398,9 +1427,11 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         if id then RemoveItem(id) else print("Usage: /iw remove <itemID>") end
     elseif cmd == "lock" then
         ItemWatchDB.locked = true
+        if itemBox and itemBox.UpdateLockIcon then itemBox.UpdateLockIcon() end
         print("|cff00ff00ItemWatch:|r frames locked.")
     elseif cmd == "unlock" then
         ItemWatchDB.locked = false
+        if itemBox and itemBox.UpdateLockIcon then itemBox.UpdateLockIcon() end
         print("|cff00ff00ItemWatch:|r frames unlocked - drag them to move.")
     elseif cmd == "list" then
         if #ItemWatchDB.items == 0 then
