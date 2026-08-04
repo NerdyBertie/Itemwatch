@@ -220,6 +220,26 @@ end
 -- Builds one icon+count button for a tracked item, living inside the box grid.
 -- Right-click removes it from tracking. Individual items no longer drag
 -- independently - the box itself is what you move; items just occupy a grid slot.
+-- Shows WoW's own silver/gold reagent-quality badge on a tracked item's
+-- icon, if that item actually has one (only crafting reagents do - most
+-- tracked items like mounts or achievement items won't). Wrapped in
+-- pcall since this reads from Blizzard's crafting API, which can behave
+-- unpredictably for items that aren't reagents at all.
+local function UpdateQualityBadge(f, itemID)
+    local quality
+    local ok = pcall(function()
+        if C_TradeSkillUI and C_TradeSkillUI.GetItemReagentQualityByItemInfo then
+            quality = C_TradeSkillUI.GetItemReagentQualityByItemInfo(itemID)
+        end
+    end)
+    if ok and quality then
+        f.qualityBadge:SetAtlas("Professions-Icon-Quality-Tier"..(quality + 1), false)
+        f.qualityBadge:Show()
+    else
+        f.qualityBadge:Hide()
+    end
+end
+
 local function CreateItemFrame(entry)
     local f = CreateFrame("Button", "ItemWatchFrame"..entry.id, itemBox.content, "BackdropTemplate")
     f:SetSize(FRAME_SIZE, FRAME_SIZE)
@@ -228,6 +248,13 @@ local function CreateItemFrame(entry)
     f.icon = f:CreateTexture(nil, "ARTWORK")
     f.icon:SetAllPoints(f)
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trims the default icon border
+
+    -- Reagent quality badge (the small silver/gold marker WoW shows on
+    -- crafting reagents) - only shown for items that actually have one
+    f.qualityBadge = f:CreateTexture(nil, "OVERLAY", nil, 2)
+    f.qualityBadge:SetSize(14, 14)
+    f.qualityBadge:SetPoint("TOPLEFT", f, "TOPLEFT", -2, 2)
+    f.qualityBadge:Hide()
 
     f.countBg = f:CreateTexture(nil, "ARTWORK", nil, 1)
     f.countBg:SetColorTexture(0, 0, 0, 0.6)
@@ -320,6 +347,8 @@ local function RefreshFrame(entry)
     if icon then
         f.icon:SetTexture(icon)
     end
+
+    UpdateQualityBadge(f, entry.id)
 
     local count = C_Item.GetItemCount(entry.id, false, false, true)
 
