@@ -16,6 +16,21 @@ local MIN_BOX_WIDTH, MIN_BOX_HEIGHT = 160, 100
 local frames = {}    -- itemID -> frame
 local FRAME_SIZE = 36
 
+-- Sets the count text, sizing the font off its length. Only ever shows
+-- the current count now - the goal is visible on hover and in the edit
+-- popup instead, and goal-reached is signaled by the green color change.
+local function SetItemCountText(fontString, text)
+    local size = 13
+    if #text >= 5 then
+        size = 10
+    elseif #text >= 4 then
+        size = 11
+    end
+    fontString:SetFont("Fonts\\FRIZQT__.ttf", size, "OUTLINE")
+    fontString:SetJustifyV("MIDDLE")
+    fontString:SetText(text)
+end
+
 -- Plays the "goal reached" sound for a specific tracked item - its own
 -- custom sound if it has one set, otherwise the global default sound.
 local function PlayGoalSound(entry)
@@ -23,6 +38,11 @@ local function PlayGoalSound(entry)
     if not sel then return end
     if sel.type == "kit" and SOUNDKIT and SOUNDKIT[sel.id] then
         PlaySound(SOUNDKIT[sel.id], "Master")
+    elseif sel.type == "kitid" and sel.id then
+        -- Raw numeric Sound Kit ID. PlaySound() has accepted numeric IDs
+        -- directly since patch 7.3.0 (this replaced the older, now
+        -- unreliable PlaySoundKitID function).
+        PlaySound(sel.id, "Master")
     elseif sel.type == "file" and sel.id then
         PlaySoundFile(sel.id, "Master")
     end
@@ -209,8 +229,17 @@ local function CreateItemFrame(entry)
     f.icon:SetAllPoints(f)
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trims the default icon border
 
-    f.count = f:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
-    f.count:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, 2)
+    f.countBg = f:CreateTexture(nil, "ARTWORK", nil, 1)
+    f.countBg:SetColorTexture(0, 0, 0, 0.6)
+    f.countBg:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+    f.countBg:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+    f.countBg:SetHeight(13)
+
+    f.count = f:CreateFontString(nil, "OVERLAY")
+    f.count:SetFont("Fonts\\FRIZQT__.ttf", 11, "OUTLINE")
+    f.count:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+    f.count:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 1) -- pins both edges so long text shrinks instead of overflowing
+    f.count:SetJustifyH("RIGHT")
 
     f:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
@@ -238,6 +267,15 @@ local function CreateItemFrame(entry)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetItemByID(entry.id)
         GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("ItemWatch", 0.4, 1, 0.4)
+        if entry.goal then
+            local count = C_Item.GetItemCount(entry.id, false, false, true)
+            if count >= entry.goal then
+                GameTooltip:AddLine("Goal reached! ("..count.."/"..entry.goal..")", 0.2, 1, 0.2)
+            else
+                GameTooltip:AddLine("Progress: "..count.."/"..entry.goal, 1, 0.82, 0)
+            end
+        end
         GameTooltip:AddLine("Left-click: edit goal/sound", 0.6, 0.8, 1)
         GameTooltip:AddLine("Shift-click: link in chat", 0.6, 0.8, 1)
         GameTooltip:AddLine("Right-click: stop tracking", 1, 0.5, 0.5)
@@ -286,7 +324,7 @@ local function RefreshFrame(entry)
     local count = C_Item.GetItemCount(entry.id, false, false, true)
 
     if entry.goal then
-        f.count:SetText(count.."/"..entry.goal)
+        SetItemCountText(f.count, tostring(count))
 
         if count >= entry.goal then
             f.count:SetTextColor(0.2, 1, 0.2) -- green once goal is met
@@ -303,7 +341,7 @@ local function RefreshFrame(entry)
             entry.goalReached = false
         end
     else
-        f.count:SetText(count)
+        SetItemCountText(f.count, tostring(count))
         f.count:SetTextColor(1, 1, 1)
     end
 end
@@ -437,8 +475,13 @@ end
 local SOUND_PRESETS = {
     { type = "file", id = 558132, name = "Peon - Work Complete!" },
     { type = "kit", id = "READY_CHECK", name = "Ready Check (loud!)" },
-    { type = "kit", id = "ACHIEVEMENT_MENU_OPEN", name = "Achievement Chime (quiet)" },
+    { type = "kitid", id = 12891, name = "Achievement Ding" },
     { type = "kit", id = "MONEY_FRAME_OPEN", name = "Coin Sound (quiet)" },
+    { type = "file", id = 3598637, name = "Cat Meow" },
+    { type = "kitid", id = 6574, name = "Aquatic Form Burp" },
+    { type = "file", id = 563010, name = "Commander Ulthok (startling - you've been warned!)" },
+    { type = "file", id = 5768969, name = "Brann - Fantastic!", header = "Brann Bronzebeard (in case you miss him <3)" },
+    { type = "file", id = 5768798, name = "Brann - Here we go!" },
 }
 
 -- Sentinel table representing "explicitly no sound for this item" - distinct
@@ -462,6 +505,7 @@ local function CreateOptionRadio(parent, labelText)
     local label = btn:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     label:SetPoint("LEFT", btn, "RIGHT", 4, 0)
     label:SetText(labelText)
+    label:SetTextColor(0.4, 1, 0.4) -- consistent ItemWatch accent green
     btn.label = label
     return btn
 end
@@ -709,7 +753,7 @@ local itemEditButtons = {}
 -- Opened by left-clicking a tracked item's icon inside the box.
 local function CreateItemEditPopup()
     local panel = CreateFrame("Frame", "ItemWatchItemEdit", UIParent, "BackdropTemplate")
-    panel:SetSize(280, 370)
+    panel:SetSize(320, 620)
     panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     panel:SetFrameStrata("DIALOG")
     panel:SetBackdrop({
@@ -752,25 +796,58 @@ local function CreateItemEditPopup()
 
     wipe(itemEditButtons)
     local lastBtn = nil
+    local LABEL_WRAP_WIDTH = 252 -- fits comfortably within the widened popup
+    local BASE_GAP = 10 -- original tight spacing for a normal single-line row
+    local SINGLE_LINE_HEIGHT = 12 -- roughly one line at this font size
 
-    local defaultBtn = CreateOptionRadio(panel, "Use default sound")
+    -- Constrains a radio label to wrap instead of running off the edge,
+    -- and returns the vertical gap the NEXT item should use below this
+    -- one - just the normal tight gap for a single-line label, or extra
+    -- room if this label actually wrapped to two or more lines.
+    local function ConstrainAndMeasure(labelOrBtn)
+        local label = labelOrBtn.label or labelOrBtn
+        label:SetWidth(LABEL_WRAP_WIDTH)
+        label:SetWordWrap(true)
+        label:SetJustifyH("LEFT")
+        local textHeight = label:GetStringHeight() or SINGLE_LINE_HEIGHT
+        local extra = math.max(0, textHeight - SINGLE_LINE_HEIGHT)
+        return BASE_GAP + extra
+    end
+
+    local defaultBtn = CreateOptionRadio(panel, "Use ItemWatch's global default\n(set in /iw options)")
     defaultBtn:SetPoint("TOPLEFT", soundLabel, "BOTTOMLEFT", 6, -12)
     defaultBtn.choice = nil
     table.insert(itemEditButtons, defaultBtn)
     lastBtn = defaultBtn
+    local nextGap = ConstrainAndMeasure(defaultBtn)
+
+    local muteBtn = CreateOptionRadio(panel, MUTED_SOUND.name)
+    muteBtn:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", 0, -nextGap)
+    muteBtn.choice = MUTED_SOUND
+    table.insert(itemEditButtons, muteBtn)
+    lastBtn = muteBtn
+    nextGap = ConstrainAndMeasure(muteBtn)
 
     for _, choice in ipairs(SOUND_PRESETS) do
+        if choice.header then
+            local header = panel:CreateFontString(nil, "OVERLAY")
+            header:SetFont("Fonts\\FRIZQT__.ttf", 13, "OUTLINE")
+            header:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", -6, -(nextGap + 6))
+            header:SetTextColor(1, 0.82, 0)
+            header:SetWidth(LABEL_WRAP_WIDTH + 6)
+            header:SetWordWrap(true)
+            header:SetJustifyH("LEFT")
+            header:SetText(choice.header)
+            lastBtn = header
+            nextGap = ConstrainAndMeasure(header)
+        end
         local btn = CreateOptionRadio(panel, choice.name)
-        btn:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", 0, -10)
+        btn:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", choice.header and 6 or 0, -nextGap)
         btn.choice = choice
         table.insert(itemEditButtons, btn)
         lastBtn = btn
+        nextGap = ConstrainAndMeasure(btn)
     end
-
-    local muteBtn = CreateOptionRadio(panel, MUTED_SOUND.name)
-    muteBtn:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", 0, -10)
-    muteBtn.choice = MUTED_SOUND
-    table.insert(itemEditButtons, muteBtn)
 
     local function SelectEditSound(choice)
         panel.selectedSound = choice
@@ -836,52 +913,172 @@ function OpenItemEditPopup(itemID)
     itemEditFrame.goalBox:SetText(entry.goal and tostring(entry.goal) or "")
 
     if entry.soundEnabled == false then
-        itemEditFrame:SelectEditSound(MUTED_SOUND)
+        itemEditFrame.SelectEditSound(MUTED_SOUND)
     else
-        itemEditFrame:SelectEditSound(entry.sound)
+        itemEditFrame.SelectEditSound(entry.sound)
     end
 
     itemEditFrame:Show()
+end
+
+-- Builds a scrollable canvas frame suitable for registering as a Settings
+-- subcategory - same scroll-frame pattern the main panel uses, since
+-- Blizzard doesn't provide this automatically for canvas-style panels.
+local function CreateScrollableSubcategory(name)
+    local panel = CreateFrame("Frame")
+    panel.name = name
+
+    local scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -27, 4)
+
+    local content = CreateFrame("Frame")
+    content:SetParent(scrollFrame)
+    content:SetSize(560, 1100)
+    scrollFrame:SetScrollChild(content)
+
+    return panel, content
+end
+
+-- Adds a labeled row with a copyable link: a colored button that
+-- highlights the URL text on click, plus a read-only edit box holding
+-- the raw link so Ctrl+C actually works (WoW can't open a browser link
+-- directly, so this is the standard addon pattern for sharing one).
+local function AddCopyableLink(content, anchor, labelText, url)
+    local btn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    btn:SetSize(150, 22)
+    btn:SetText(labelText)
+    btn:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -10)
+
+    local box = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
+    box:SetSize(320, 20)
+    box:SetAutoFocus(false)
+    box:SetFont("Fonts\\FRIZQT__.ttf", 12, "")
+    box:SetTextColor(1, 1, 1, 1)
+    box:SetJustifyH("LEFT")
+    box:SetPoint("LEFT", btn, "RIGHT", 12, 0)
+    box:SetText(url)
+    box:SetCursorPosition(0)
+    box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    btn:SetScript("OnClick", function() box:SetFocus() end)
+
+    return btn
+end
+
+-- Builds a sectioned subpage: a title, then repeated heading + body +
+-- divider blocks. Used by both Helpful Information and Practical Uses so
+-- they stay visually consistent and any future tweaks apply to both.
+local function BuildSectionedSubpage(name, pageTitle, sections)
+    local panel, content = CreateScrollableSubcategory(name)
+    local title = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText(pageTitle)
+
+    local BODY_FONT_SIZE = 15
+    local BODY_LINE_HEIGHT = 19
+    local CHARS_PER_LINE = 58 -- conservative estimate for 480px width at this font size
+
+    local yOffset = -(16 + (title:GetStringHeight() or 20) + 16)
+    for _, section in ipairs(sections) do
+        local heading = content:CreateFontString(nil, "OVERLAY")
+        heading:SetFont("Fonts\\FRIZQT__.ttf", 15, "OUTLINE")
+        heading:SetTextColor(1, 0.82, 0)
+        heading:SetPoint("TOPLEFT", content, "TOPLEFT", 16, yOffset)
+        heading:SetText(section[1])
+        yOffset = yOffset - 20 - 6
+
+        local body = content:CreateFontString(nil, "ARTWORK")
+        body:SetFont("Fonts\\FRIZQT__.ttf", BODY_FONT_SIZE, "")
+        body:SetPoint("TOPLEFT", content, "TOPLEFT", 20, yOffset)
+        body:SetWidth(480)
+        body:SetJustifyH("LEFT")
+        body:SetWordWrap(true)
+        body:SetText(section[2])
+
+        -- Estimating wrapped line count from text length instead of
+        -- trusting GetStringHeight() right after SetText, since that
+        -- occasionally returns a stale single-line value for wrapped
+        -- text and silently threw off spacing before.
+        local estimatedLines = math.max(1, math.ceil(#section[2] / CHARS_PER_LINE))
+        yOffset = yOffset - (estimatedLines * BODY_LINE_HEIGHT) - 12
+
+        local divider = content:CreateTexture(nil, "ARTWORK")
+        divider:SetColorTexture(0.5, 0.5, 0.5, 0.4)
+        divider:SetPoint("TOPLEFT", content, "TOPLEFT", 16, yOffset)
+        divider:SetSize(520, 1)
+        yOffset = yOffset - 16
+    end
+
+    return panel
 end
 
 local function BuildOptionsPanel()
     local panel = CreateFrame("Frame")
     panel.name = "ItemWatch"
 
-    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    -- Canvas category panels are NOT automatically wrapped in a scroll
+    -- frame by Blizzard's Settings system the way fully-managed settings
+    -- controls are - anything past the visible area just gets clipped
+    -- unless we build our own scroll frame. So we do that here: `panel`
+    -- stays the fixed-size frame registered with Settings, and everything
+    -- we actually build lives on `content`, a scroll child inside it.
+    local scrollFrame = CreateFrame("ScrollFrame", "ItemWatchOptionsScroll", panel, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -27, 4)
+
+    local content = CreateFrame("Frame", "ItemWatchOptionsScrollChild", scrollFrame)
+    content:SetSize(560, 800) -- explicit size; scroll frames need this, not stretchy anchors
+    scrollFrame:SetScrollChild(content)
+
+    local title = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
     title:SetText("ItemWatch")
 
-    local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local subtitle = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
     subtitle:SetText("Choose the sound played when a tracked item's goal is reached.")
 
+    local testHint = content:CreateFontString(nil, "ARTWORK")
+    testHint:SetFont("Fonts\\FRIZQT__.ttf", 13, "OUTLINE")
+    testHint:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -4)
+    testHint:SetTextColor(1, 0.82, 0)
+    testHint:SetText("Tip: use the Test Sound button below before picking, so you know what you're getting!")
+
     local lastButton = nil
-    for _, choice in ipairs(SOUND_PRESETS) do
-        local btn = CreateOptionRadio(panel, choice.name)
+
+    -- First pass: general presets, up until the first header-tagged one
+    local splitIndex = #SOUND_PRESETS + 1
+    for i, choice in ipairs(SOUND_PRESETS) do
+        if choice.header then
+            splitIndex = i
+            break
+        end
+        local btn = CreateOptionRadio(content, choice.name)
         btn.choice = choice
         if lastButton then
             btn:SetPoint("TOPLEFT", lastButton, "BOTTOMLEFT", 0, -12)
         else
-            btn:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -20)
+            btn:SetPoint("TOPLEFT", testHint, "BOTTOMLEFT", 0, -16)
         end
         btn:SetScript("OnClick", function() SelectSound(choice) end)
         table.insert(optionButtons, btn)
         lastButton = btn
     end
 
-    -- Custom sound ID option
-    local customBtn = CreateOptionRadio(panel, "Custom FileDataID:")
+    -- Custom sound ID option sits with the general list, before any
+    -- themed/grouped sections like Brann Bronzebeard's
+    local customBtn = CreateOptionRadio(content, "Custom FileDataID:")
     customBtn:SetPoint("TOPLEFT", lastButton, "BOTTOMLEFT", 0, -12)
     table.insert(optionButtons, customBtn)
 
-    local customBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    local customBox = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
     customBox:SetSize(100, 20)
     customBox:SetAutoFocus(false)
     customBox:SetPoint("LEFT", customBtn.label, "RIGHT", 12, 0)
     customBox:SetNumeric(true)
 
-    local hint = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    local hint = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", customBtn, "BOTTOMLEFT", 4, -6)
     hint:SetWidth(420)
     hint:SetJustifyH("LEFT")
@@ -901,43 +1098,69 @@ local function BuildOptionsPanel()
         end
     end)
 
+    lastButton = hint
+
+    -- Second pass: any remaining themed/grouped sections (e.g. Brann
+    -- Bronzebeard), rendered after the general list + custom ID option
+    for i = splitIndex, #SOUND_PRESETS do
+        local choice = SOUND_PRESETS[i]
+        if choice.header then
+            local header = content:CreateFontString(nil, "OVERLAY")
+            header:SetFont("Fonts\\FRIZQT__.ttf", 13, "OUTLINE")
+            header:SetTextColor(1, 0.82, 0)
+            header:SetText(choice.header)
+            header:SetPoint("TOPLEFT", lastButton, "BOTTOMLEFT", -6, -20)
+            lastButton = header
+        end
+
+        local btn = CreateOptionRadio(content, choice.name)
+        btn.choice = choice
+        btn:SetPoint("TOPLEFT", lastButton, "BOTTOMLEFT", choice.header and 6 or 0, -12)
+        btn:SetScript("OnClick", function() SelectSound(choice) end)
+        table.insert(optionButtons, btn)
+        lastButton = btn
+    end
+
     -- Test button
-    local testBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local testBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     testBtn:SetSize(100, 22)
-    testBtn:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", -4, -12)
+    testBtn:SetPoint("TOPLEFT", lastButton, "BOTTOMLEFT", 4, -20)
     testBtn:SetText("Test Sound")
     testBtn:SetScript("OnClick", function() PlayGoalSound() end)
 
     -- Visibility section
-    local visTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    visTitle:SetPoint("TOPLEFT", testBtn, "BOTTOMLEFT", 4, -28)
-    visTitle:SetText("Visibility")
+    local visTitle = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    visTitle:SetPoint("TOPLEFT", testBtn, "BOTTOMLEFT", 4, -20)
+    visTitle:SetText("Visibility (scroll down for more)")
 
-    local visSubtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    visSubtitle:SetPoint("TOPLEFT", visTitle, "BOTTOMLEFT", 0, -8)
+    local visSubtitle = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    visSubtitle:SetPoint("TOPLEFT", visTitle, "BOTTOMLEFT", 0, -6)
     visSubtitle:SetText("Tracking keeps running in the background even while hidden - nothing is lost.")
 
-    local combatCheck = CreateFrame("CheckButton", "ItemWatchHideCombatCheck", panel, "UICheckButtonTemplate")
-    combatCheck:SetPoint("TOPLEFT", visSubtitle, "BOTTOMLEFT", -2, -16)
+    local combatCheck = CreateFrame("CheckButton", "ItemWatchHideCombatCheck", content, "UICheckButtonTemplate")
+    combatCheck:SetPoint("TOPLEFT", visSubtitle, "BOTTOMLEFT", -2, -12)
     _G["ItemWatchHideCombatCheckText"]:SetText("Hide box during combat")
+    _G["ItemWatchHideCombatCheckText"]:SetTextColor(0.4, 1, 0.4)
     combatCheck:SetScript("OnClick", function(self)
         ItemWatchDB.hideInCombat = self:GetChecked() and true or false
         UpdateBoxVisibility()
     end)
     panel.combatCheck = combatCheck
 
-    local petBattleCheck = CreateFrame("CheckButton", "ItemWatchHidePetBattleCheck", panel, "UICheckButtonTemplate")
-    petBattleCheck:SetPoint("TOPLEFT", combatCheck, "BOTTOMLEFT", 0, -8)
+    local petBattleCheck = CreateFrame("CheckButton", "ItemWatchHidePetBattleCheck", content, "UICheckButtonTemplate")
+    petBattleCheck:SetPoint("TOPLEFT", combatCheck, "BOTTOMLEFT", 0, -6)
     _G["ItemWatchHidePetBattleCheckText"]:SetText("Hide box during pet battles")
+    _G["ItemWatchHidePetBattleCheckText"]:SetTextColor(0.4, 1, 0.4)
     petBattleCheck:SetScript("OnClick", function(self)
         ItemWatchDB.hideInPetBattles = self:GetChecked() and true or false
         UpdateBoxVisibility()
     end)
     panel.petBattleCheck = petBattleCheck
 
-    local minimapCheck = CreateFrame("CheckButton", "ItemWatchShowMinimapCheck", panel, "UICheckButtonTemplate")
-    minimapCheck:SetPoint("TOPLEFT", petBattleCheck, "BOTTOMLEFT", 0, -8)
+    local minimapCheck = CreateFrame("CheckButton", "ItemWatchShowMinimapCheck", content, "UICheckButtonTemplate")
+    minimapCheck:SetPoint("TOPLEFT", petBattleCheck, "BOTTOMLEFT", 0, -6)
     _G["ItemWatchShowMinimapCheckText"]:SetText("Show minimap button")
+    _G["ItemWatchShowMinimapCheckText"]:SetTextColor(0.4, 1, 0.4)
     minimapCheck:SetScript("OnClick", function(self)
         local shouldShow = self:GetChecked() and true or false
         ItemWatchDB.minimapIcon.hide = not shouldShow
@@ -969,6 +1192,119 @@ local function BuildOptionsPanel()
         local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
         Settings.RegisterAddOnCategory(category)
         optionsCategory = category
+
+        if Settings.RegisterCanvasLayoutSubcategory then
+            -- Helpful Information
+            local helpSections = {
+                { "Tracking an item you have",
+                  "Drag it from your bags straight onto the box. That's it - no commands needed." },
+                { "Tracking an item you don't have yet",
+                  "Click the \"+\" on the box (or right-click empty space inside it). Paste a Wowhead link, type the item ID, or shift-click an item to fill the field automatically." },
+                { "Setting a goal and sound",
+                  "Left-click any tracked item's icon to open its edit popup - set a goal amount and pick its own sound, or leave it on \"Use ItemWatch's global default.\"" },
+                { "ItemWatch's global default sound",
+                  "This is ItemWatch's own fallback sound, not a WoW setting - it's what plays for any item you haven't given its own specific sound. Set it by right-clicking the minimap button, or typing /iw options and picking a sound there." },
+                { "Removing an item",
+                  "Right-click its icon in the box." },
+                { "Linking or previewing an item",
+                  "Shift-click a tracked icon to post it in chat. Ctrl-click previews equippable gear in the dressing room." },
+                { "Moving and resizing the box",
+                  "Drag the title bar to move it, drag the bottom-right corner to resize it. /iw lock keeps it in place." },
+                { "The minimap button",
+                  "Left-click toggles the box, right-click opens these settings. It's fully compatible with minimap button tray addons like ElvUI, Dominos, and others." },
+                { "Hiding the box automatically",
+                  "The Visibility section below can hide the box during combat or pet battles. Tracking keeps running in the background either way - nothing is lost." },
+                { "Prefer typing commands?",
+                  "All the original /iw commands still work exactly as before - the box and popups are additional ways in, not replacements. Type /iw for the full list." },
+            }
+            local helpPanel = BuildSectionedSubpage("Helpful Information", "How to Use ItemWatch", helpSections)
+            Settings.RegisterCanvasLayoutSubcategory(category, helpPanel, helpPanel.name)
+
+            -- Practical Uses
+            local practicalSections = {
+                { "Real-time, bags only - on purpose",
+                  "Some addons also track your bank, warbank, and guild bank. ItemWatch doesn't - it only watches what's actually in your bags right now. That's deliberate: the number you see is always exactly accurate, with nothing sitting somewhere else quietly padding the count." },
+                { "Farming without the bag-checking",
+                  "The obvious one: crafting materials. If you need a specific amount for something you're making right now, track it, set the goal, and glance at the box instead of stopping to open your bags every few kills." },
+                { "Building an Auction House shopping list",
+                  "Track everything you need to buy, with a goal set for each - your own shopping list. At the Auction House, click into the search bar, then shift-click the item's icon in ItemWatch's box to drop its name straight into the search. Repeat for each item on your list as you buy." },
+                { "Tracking something you don't have yet",
+                  "This is what the Quick-Add popup and per-item sounds are really for. Say you're fishing for Strange Goop - with auto-loot on, it's easy to miss picking one up while you're only half paying attention. Track it before you have a single one, set a goal of 1, pick a sound, and let ItemWatch tell you the moment it lands in your bags instead of hoping you noticed." },
+                { "The green ding",
+                  "However you're using it, the payoff is the same: hit your goal, the icon turns green, and you get a sound - so you know instantly without needing to actually look." },
+                { "Got a use we haven't listed?",
+                  "There are probably more ways to put ItemWatch to work than we've thought of. If you've found one, let us know on CurseForge - see the Contact/Support page." },
+            }
+            local practicalPanel = BuildSectionedSubpage("Practical Uses", "Practical Uses for ItemWatch", practicalSections)
+            Settings.RegisterCanvasLayoutSubcategory(category, practicalPanel, practicalPanel.name)
+
+            -- Support
+            local supportPanel, supportContent = CreateScrollableSubcategory("Contact/Support")
+            local supportTitle = supportContent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+            supportTitle:SetPoint("TOPLEFT", 16, -16)
+            supportTitle:SetText("Contact/Support ItemWatch")
+
+            local supportBody = supportContent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            supportBody:SetPoint("TOPLEFT", supportTitle, "BOTTOMLEFT", 0, -8)
+            supportBody:SetWidth(500)
+            supportBody:SetJustifyH("LEFT")
+            supportBody:SetWordWrap(true)
+            supportBody:SetText("If you find ItemWatch useful, support is completely optional and always appreciated!")
+
+            local supportTip = supportContent:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+            supportTip:SetPoint("TOPLEFT", supportBody, "BOTTOMLEFT", 0, -6)
+            supportTip:SetText("Tip: click the button to select the link, then Ctrl+C to copy it.")
+
+            local kofiBtn = AddCopyableLink(supportContent, supportTip, "Ko-fi", "https://ko-fi.com/nerdybertie")
+
+            local thanksText = supportContent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            thanksText:SetPoint("TOPLEFT", kofiBtn, "BOTTOMLEFT", 0, -20)
+            thanksText:SetText("Thank you to everyone who's supported ItemWatch's development!")
+
+            local contactTitle = supportContent:CreateFontString(nil, "ARTWORK")
+            contactTitle:SetFont("Fonts\\FRIZQT__.ttf", 14, "OUTLINE")
+            contactTitle:SetTextColor(1, 0.82, 0)
+            contactTitle:SetPoint("TOPLEFT", thanksText, "BOTTOMLEFT", 0, -24)
+            contactTitle:SetText("Contact Me")
+
+            local contactBody = supportContent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            contactBody:SetPoint("TOPLEFT", contactTitle, "BOTTOMLEFT", 0, -6)
+            contactBody:SetWidth(500)
+            contactBody:SetJustifyH("LEFT")
+            contactBody:SetWordWrap(true)
+            contactBody:SetText("For comments, suggestions, or anything related to ItemWatch, please use CurseForge messaging.")
+
+            AddCopyableLink(supportContent, contactBody, "CurseForge", "https://www.curseforge.com/wow/addons/item-watch")
+
+            Settings.RegisterCanvasLayoutSubcategory(category, supportPanel, supportPanel.name)
+
+            -- About
+            local aboutPanel, aboutContent = CreateScrollableSubcategory("About")
+            local aboutTitle = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+            aboutTitle:SetPoint("TOPLEFT", 16, -16)
+            aboutTitle:SetText("ItemWatch")
+
+            local aboutBy = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            aboutBy:SetPoint("TOPLEFT", aboutTitle, "BOTTOMLEFT", 0, -6)
+            aboutBy:SetText("Created by NerdyBertie")
+
+            local aboutBody = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            aboutBody:SetPoint("TOPLEFT", aboutBy, "BOTTOMLEFT", 0, -14)
+            aboutBody:SetWidth(500)
+            aboutBody:SetJustifyH("LEFT")
+            aboutBody:SetWordWrap(true)
+            aboutBody:SetText("ItemWatch started as a way to stop opening bags every five seconds while farming. It's grown into a full item-goal tracker: a movable box, per-item sounds, and a minimap button - built for anyone who'd rather glance at a number than dig through their bags.")
+
+            local aboutLinks = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+            aboutLinks:SetPoint("TOPLEFT", aboutBody, "BOTTOMLEFT", -4, -20)
+            aboutLinks:SetText("Links")
+
+            local twitchBtn = AddCopyableLink(aboutContent, aboutLinks, "Twitch", "https://www.twitch.tv/nerdybertie")
+            local youtubeBtn = AddCopyableLink(aboutContent, twitchBtn, "YouTube", "https://www.youtube.com/@nerdybertie")
+            local githubBtn = AddCopyableLink(aboutContent, youtubeBtn, "GitHub", "https://github.com/NerdyBertie/Itemwatch")
+
+            Settings.RegisterCanvasLayoutSubcategory(category, aboutPanel, aboutPanel.name)
+        end
     elseif InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(panel)
     end
