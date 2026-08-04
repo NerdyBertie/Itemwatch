@@ -81,6 +81,11 @@ local function CopyDefaults(src, dst)
 end
 
 local itemBox = nil
+-- Only true once BAG_UPDATE_DELAYED has fired at least once - the very
+-- first refresh on login can happen before WoW has actually finished
+-- loading bag data, which would otherwise read a false "0 items" count
+-- and incorrectly reset an already-earned goal, replaying its ding.
+local bagsReady = false
 local inCombat = false
 local inPetBattle = false
 
@@ -396,7 +401,9 @@ local function RefreshFrame(entry)
             end
         else
             f.count:SetTextColor(1, 1, 1) -- back to white if below goal again
-            entry.goalReached = false
+            if bagsReady then
+                entry.goalReached = false
+            end
         end
     else
         SetItemCountText(f.count, tostring(count))
@@ -488,7 +495,12 @@ local function SetGoal(itemID, amount)
         return
     end
     entry.goal = amount
-    entry.goalReached = false
+    -- If you already have enough for this new goal, mark it reached
+    -- silently (no ding) - only a genuinely new completion during actual
+    -- gameplay should play a sound, not just setting/editing a goal that
+    -- happens to already be satisfied.
+    local count = C_Item.GetItemCount(itemID, false, false, true)
+    entry.goalReached = (count >= amount)
     RefreshFrame(entry)
     print("|cff00ff00ItemWatch:|r goal for item "..itemID.." set to "..amount)
 end
@@ -538,8 +550,8 @@ local SOUND_PRESETS = {
     { type = "file", id = 3598637, name = "Cat Meow" },
     { type = "kitid", id = 6574, name = "Aquatic Form Burp" },
     { type = "file", id = 563010, name = "Commander Ulthok (startling - you've been warned!)" },
-    { type = "file", id = 5768969, name = "Brann - Fantastic!", header = "Brann Bronzebeard (in case you miss him <3)" },
-    { type = "file", id = 5768798, name = "Brann - Here we go!" },
+    { type = "file", id = 5768798, name = "Brann - Here we go!", header = "Brann Bronzebeard (in case you miss him <3)" },
+    { type = "file", id = 5768826, name = "Brann - Time to go all out!" },
 }
 
 -- Sentinel table representing "explicitly no sound for this item" - distinct
@@ -811,7 +823,7 @@ local itemEditButtons = {}
 -- Opened by left-clicking a tracked item's icon inside the box.
 local function CreateItemEditPopup()
     local panel = CreateFrame("Frame", "ItemWatchItemEdit", UIParent, "BackdropTemplate")
-    panel:SetSize(320, 620)
+    panel:SetSize(320, 645)
     panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     panel:SetFrameStrata("DIALOG")
     panel:SetBackdrop({
@@ -1393,6 +1405,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         CreateMinimapButton()
         UpdateBoxVisibility()
     elseif event == "BAG_UPDATE_DELAYED" then
+        bagsReady = true
         RefreshAll()
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         -- item data can arrive late from the server; refresh once it's in
