@@ -373,6 +373,11 @@ function LayoutBox()
 end
 
 -- Refreshes icon texture + count text for one tracked item
+local lowCountStreak = {} -- debounce: require 2 consecutive low readings
+                          -- before trusting a goal reset, since a single
+                          -- transient bad read (e.g. during a zone-load
+                          -- hiccup) shouldn't be enough to wipe an
+                          -- already-earned goal and risk a false re-ding
 local function RefreshFrame(entry)
     local f = frames[entry.id]
     if not f then return end
@@ -391,6 +396,7 @@ local function RefreshFrame(entry)
 
         if count >= entry.goal then
             f.count:SetTextColor(0.2, 1, 0.2) -- green once goal is met
+            lowCountStreak[entry.id] = 0
             if not entry.goalReached then
                 entry.goalReached = true
                 if entry.soundEnabled then
@@ -402,7 +408,10 @@ local function RefreshFrame(entry)
         else
             f.count:SetTextColor(1, 1, 1) -- back to white if below goal again
             if bagsReady then
-                entry.goalReached = false
+                lowCountStreak[entry.id] = (lowCountStreak[entry.id] or 0) + 1
+                if lowCountStreak[entry.id] >= 2 then
+                    entry.goalReached = false
+                end
             end
         end
     else
