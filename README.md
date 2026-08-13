@@ -3,7 +3,8 @@ ItemWatch
 
 A World of Warcraft addon for tracking specific item counts — a movable,
 resizable box you drag items into, with goals, per-item sounds, and a
-minimap button.
+minimap button. Now also builds a shopping list straight from any
+crafting recipe.
 
 Built for farming, collecting, or any situation where you need to keep an
 eye on an exact item count without repeatedly opening your bags.
@@ -13,6 +14,14 @@ eye on an exact item count without repeatedly opening your bags.
 - **Item Box** — a movable, resizable container for everything you're
   tracking. Drag items from your bags straight onto it, right-click an
   icon inside to remove it.
+- **Recipe Shopping List** — click "Add to Shopping List" on any recipe
+  in the Professions Recipes tab, and ItemWatch reads its full reagent
+  list and builds a shopping list for you automatically. Required
+  reagents track live progress (counting bank, reagent bank, and warband
+  bank, not just bags), optional/finishing reagents show as a plain
+  reminder, and reagents you can't buy on the Auction House are flagged
+  "[vendor/earned only]" instead of silently vanishing. The window is
+  movable, resizable, lockable, and persists across logout/reload.
 - **Quick-Add popup** — track items you don't have yet by pasting a
   Wowhead link, typing an item ID, or shift-clicking an item straight
   into the field. Set a goal and sound in one step.
@@ -25,9 +34,12 @@ eye on an exact item count without repeatedly opening your bags.
   Brann Bronzebeard easter egg section.
 - **Shift-click to link, Ctrl-click to preview** — tracked icons behave
   like real item icons for chat links and equippable-gear previews.
-- **Character-specific tracking** — each character keeps its own list,
-  bags + reagent bag only, real-time (no bank/warbank tracking, so counts
-  are always exactly accurate).
+- **Character-specific tracking** — each character keeps its own list.
+  The main Item Box is deliberately bags + reagent bag only, real-time,
+  so counts are always exactly accurate (no bank/warband padding the
+  number). The Shopping List is the one place that does check your bank
+  and warband, since it's answering a different question - "do I still
+  need to go buy this."
 - **Blizzard Edit Mode support** for the box.
 - **Combat / pet battle visibility toggles** — hide the box automatically
   if you'd rather it stay out of the way. Tracking keeps running in the
@@ -37,8 +49,9 @@ eye on an exact item count without repeatedly opening your bags.
   compatible with minimap button "tray" addons (ElvUI's built-in one,
   Dominos, Bartender4, MBB, SexyMap, etc.).
 - **In-game documentation** — the settings panel has expandable
-  sub-pages covering how to use ItemWatch, practical usage ideas (like
-  Auction House shopping lists), and contact/support info.
+  sub-pages covering how to use ItemWatch, the Recipe Shopping List,
+  practical usage ideas (like Auction House shopping lists built from
+  the main box), and contact/support info.
 - All the original `/iw` slash commands still work, unchanged — the box
   and popups are additional ways in, not replacements.
 - Lightweight — event-driven, no polling.
@@ -66,6 +79,15 @@ eye on an exact item count without repeatedly opening your bags.
    the field automatically.
 3. Set a goal and sound preference, click Track.
 
+**Building a shopping list from a recipe:**
+1. Open any profession's Recipes tab and select a recipe.
+2. Click "Add to Shopping List."
+3. Required reagents show live have/needed progress (bank + reagent bank
+   + warband bank included), optional reagents show as a reminder, and
+   anything you can't buy is flagged "[vendor/earned only]."
+4. The window sticks around - move it, resize it, lock it, or just leave
+   it open. It'll still be there if you log out mid-farm.
+
 ### Commands
 
 | Command | Description |
@@ -80,6 +102,7 @@ eye on an exact item count without repeatedly opening your bags.
 | `/iw goal <itemID> clear` | Remove the goal for an item |
 | `/iw sound <itemID> on\|off` | Toggle the goal-reached sound for an item |
 | `/iw testsound` | Preview the default goal sound |
+| `/iw addrecipe` | Add the currently-open recipe to the Shopping List |
 | `/iw options` | Open the settings panel |
 
 Ctrl+Shift+Click an item in your bags also adds it directly, no item ID
@@ -93,9 +116,10 @@ set per-item sounds, combat/pet-battle visibility toggles, and show/hide
 the minimap button.
 
 The settings panel also has an expandable "+" with sub-pages: **Helpful
-Information** (how everything works), **Practical Uses** (real workflows
-like Auction House shopping lists and tracking items you don't have
-yet), **Contact/Support**, and **About**.
+Information** (how everything works), **Shopping List** (how the
+recipe-based shopping list works), **Practical Uses** (real workflows
+like building an Auction House list from the main box), **Contact/Support**,
+and **About**.
 
 ## Notes
 
