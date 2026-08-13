@@ -16,12 +16,16 @@ eye on an exact item count without repeatedly opening your bags.
   icon inside to remove it.
 - **Recipe Shopping List** — click "Add to Shopping List" on any recipe
   in the Professions Recipes tab, and ItemWatch reads its full reagent
-  list and builds a shopping list for you automatically. Required
-  reagents track live progress (counting bank, reagent bank, and warband
-  bank, not just bags), optional/finishing reagents show as a plain
-  reminder, and reagents you can't buy on the Auction House are flagged
-  "[vendor/earned only]" instead of silently vanishing. The window is
-  movable, resizable, lockable, and persists across logout/reload.
+  list and builds a shopping list for you automatically. Making more
+  than one? Set the quantity right in the window ("Crafting: __ x this
+  recipe") and every reagent's needed amount updates live - no need to
+  re-add the recipe. Required reagents track live progress (counting
+  bank, reagent bank, and warband bank, not just bags), optional/
+  finishing reagents show as a plain reminder, and reagents you can't
+  buy on the Auction House are flagged "[vendor/earned only]" instead of
+  silently vanishing. The window is movable, resizable, lockable,
+  persists across logout/reload, and asks before replacing an already-
+  open list so an accidental click won't wipe your progress.
 - **Quick-Add popup** — track items you don't have yet by pasting a
   Wowhead link, typing an item ID, or shift-clicking an item straight
   into the field. Set a goal and sound in one step.
@@ -29,9 +33,11 @@ eye on an exact item count without repeatedly opening your bags.
   goal or pick its own custom "goal reached" sound (or mute it).
 - **Per-item ding sounds** — no more one generic sound for everything;
   give each tracked item its own, so you know what just hit its goal
-  without looking. Includes a few fun presets alongside the standard
-  ones - Commander Ulthok, Cat Meow, Aquatic Form Burp, and a small
-  Brann Bronzebeard easter egg section.
+  without looking. Includes plenty of fun presets alongside the standard
+  ones - Commander Ulthok, Cat Meow, Aquatic Form Burp, Illidan, a Brann
+  Bronzebeard easter egg section, and grouped "Horde Legends" (Thrall,
+  Sylvanas, Baine, Monte Gazlowe) and "Alliance Champions" (Genn
+  Greymane, Tyrande, Magni, Gelbin) sections.
 - **Shift-click to link, Ctrl-click to preview** — tracked icons behave
   like real item icons for chat links and equippable-gear previews.
 - **Character-specific tracking** — each character keeps its own list.
@@ -52,6 +58,9 @@ eye on an exact item count without repeatedly opening your bags.
   sub-pages covering how to use ItemWatch, the Recipe Shopping List,
   practical usage ideas (like Auction House shopping lists built from
   the main box), and contact/support info.
+- **What's New popup** — a quick highlight reel shows once after each
+  update (and doubles as an intro if you're new to ItemWatch). Bring it
+  back any time with `/iw whatsnew`.
 - All the original `/iw` slash commands still work, unchanged — the box
   and popups are additional ways in, not replacements.
 - Lightweight — event-driven, no polling.
@@ -103,6 +112,7 @@ eye on an exact item count without repeatedly opening your bags.
 | `/iw sound <itemID> on\|off` | Toggle the goal-reached sound for an item |
 | `/iw testsound` | Preview the default goal sound |
 | `/iw addrecipe` | Add the currently-open recipe to the Shopping List |
+| `/iw whatsnew` | Show the What's New popup again |
 | `/iw options` | Open the settings panel |
 
 Ctrl+Shift+Click an item in your bags also adds it directly, no item ID
