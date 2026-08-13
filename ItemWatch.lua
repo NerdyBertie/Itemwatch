@@ -9,6 +9,16 @@ local defaults = {
     hideInCombat = false,
     hideInPetBattles = false,
     minimapIcon = { hide = false },
+    shoppingList = {
+        active = false,      -- whether there's a current shopping list to show
+        dismissed = true,    -- true = window closed/hidden by the user
+        recipeName = nil,
+        required = {},       -- { itemID, name, needed, isBoP }
+        optional = {},       -- { itemID, name } - reminder-only, no goal tracking
+        point = "CENTER", x = 0, y = -150,
+        width = 260, height = 400,
+        locked = false,
+    },
 }
 
 local MIN_BOX_WIDTH, MIN_BOX_HEIGHT = 160, 100
@@ -108,6 +118,7 @@ local HandleItemDroppedOnBox -- forward declaration; defined after AddItem below
 local RemoveItem -- forward declaration; defined further below, but CreateItemFrame needs it for right-click
 local OpenQuickAddPopup -- forward declaration; defined after AddItem/SetGoal/ToggleSound below
 local OpenItemEditPopup -- forward declaration; defined after SetGoal/ToggleSound/SetItemSound below
+local RefreshShoppingList -- forward declaration; defined after CreateShoppingListWindow, but the window's own resize handle needs it
 
 -- Builds the empty Item Box container frame - movable, resizable, with a
 -- title bar. Item icons get placed inside this in a later step; for now
@@ -1000,6 +1011,391 @@ function OpenItemEditPopup(itemID)
     itemEditFrame:Show()
 end
 
+local shoppingListFrame = nil
+local shoppingListRows = {} -- itemID -> row frame, for required reagents
+
+-- Builds the Shopping List window - separate from the main Item Box,
+-- for "I need this right now to craft something" rather than long-term
+-- tracking goals. Required reagents show progress toward what's needed;
+-- optional reagents (missives, embellishments) show as a plain reminder
+-- checklist since picking one is a build-specific choice, not something
+-- ItemWatch should choose for the player.
+local function CreateShoppingListWindow()
+    local panel = CreateFrame("Frame", "ItemWatchShoppingList", UIParent, "BackdropTemplate")
+    panel:SetSize(ItemWatchDB.shoppingList.width or 260, ItemWatchDB.shoppingList.height or 400)
+    panel:SetFrameStrata("HIGH")
+    panel:SetMovable(true)
+    panel:SetResizable(true)
+    panel:SetClampedToScreen(true)
+    if panel.SetResizeBounds then
+        panel:SetResizeBounds(200, 200)
+    else
+        panel:SetMinResize(200, 200) -- older API, kept for compatibility
+    end
+    panel:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    panel:SetBackdropColor(0, 0, 0, 0.75)
+    panel:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+    panel:Hide()
+
+    local titleBar = CreateFrame("Frame", nil, panel)
+    titleBar:SetHeight(24)
+    titleBar:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+    titleBar:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
+    titleBar:EnableMouse(true)
+    titleBar:RegisterForDrag("LeftButton")
+    titleBar:SetScript("OnDragStart", function()
+        if not ItemWatchDB.shoppingList.locked then
+            panel:StartMoving()
+        end
+    end)
+    titleBar:SetScript("OnDragStop", function()
+        panel:StopMovingOrSizing()
+        local point, _, _, x, y = panel:GetPoint()
+        ItemWatchDB.shoppingList.point = point
+        ItemWatchDB.shoppingList.x = x
+        ItemWatchDB.shoppingList.y = y
+    end)
+
+    local title = titleBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("CENTER", titleBar, "CENTER", -16, 0)
+    title:SetText("Shopping List")
+
+    local closeBtn = CreateFrame("Button", nil, titleBar)
+    closeBtn:SetSize(20, 20)
+    closeBtn:SetPoint("RIGHT", titleBar, "RIGHT", -4, 0)
+    local closeFS = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    closeFS:SetPoint("CENTER", closeBtn, "CENTER", 0, 0)
+    closeFS:SetText("X")
+    closeFS:SetTextColor(1, 0.3, 0.3)
+    closeBtn:SetScript("OnClick", function()
+        ItemWatchDB.shoppingList.dismissed = true
+        panel:Hide()
+    end)
+
+    -- Lock/unlock toggle, same behavior and icon set as the main Item Box's
+    -- lock button - locking here just stops accidental drags/resizes while
+    -- you're clicking around inside the window
+    local lockBtn = CreateFrame("Button", nil, titleBar)
+    lockBtn:SetSize(18, 18)
+    lockBtn:SetPoint("RIGHT", closeBtn, "LEFT", -2, 0)
+    lockBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+
+    local function UpdateShoppingListLockIcon()
+        if ItemWatchDB.shoppingList.locked then
+            lockBtn:SetNormalTexture("Interface\\Buttons\\LockButton-Locked-Up")
+        else
+            lockBtn:SetNormalTexture("Interface\\Buttons\\LockButton-Unlocked-Up")
+        end
+    end
+    panel.UpdateLockIcon = UpdateShoppingListLockIcon
+    UpdateShoppingListLockIcon()
+
+    lockBtn:SetScript("OnClick", function()
+        ItemWatchDB.shoppingList.locked = not ItemWatchDB.shoppingList.locked
+        UpdateShoppingListLockIcon()
+    end)
+    lockBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(ItemWatchDB.shoppingList.locked and "Unlock window" or "Lock window")
+        GameTooltip:Show()
+    end)
+    lockBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local recipeNameText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    recipeNameText:SetPoint("TOPLEFT", titleBar, "BOTTOMLEFT", 6, -6)
+    recipeNameText:SetPoint("TOPRIGHT", titleBar, "BOTTOMRIGHT", -6, -6)
+    recipeNameText:SetJustifyH("LEFT")
+    recipeNameText:SetTextColor(1, 0.82, 0)
+    panel.recipeNameText = recipeNameText
+
+    local content = CreateFrame("Frame", nil, panel)
+    content:SetPoint("TOPLEFT", recipeNameText, "BOTTOMLEFT", 0, -8)
+    content:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 30)
+    panel.content = content
+
+    local statusText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    statusText:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 6, 8)
+    statusText:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 8)
+    statusText:SetJustifyH("CENTER")
+    statusText:SetTextColor(0.4, 1, 0.4)
+    panel.statusText = statusText
+
+    -- Resize handle, bottom-right corner - same texture set as the Item Box's
+    local resizeHandle = CreateFrame("Button", nil, panel)
+    resizeHandle:SetSize(16, 16)
+    resizeHandle:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -2, 2)
+    resizeHandle:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    resizeHandle:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    resizeHandle:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+
+    resizeHandle:SetScript("OnMouseDown", function()
+        if not ItemWatchDB.shoppingList.locked then
+            panel:StartSizing("BOTTOMRIGHT")
+        end
+    end)
+    resizeHandle:SetScript("OnMouseUp", function()
+        panel:StopMovingOrSizing()
+        ItemWatchDB.shoppingList.width = panel:GetWidth()
+        ItemWatchDB.shoppingList.height = panel:GetHeight()
+        -- Rows are sized off the content area's width, so a resize needs
+        -- a re-layout the same way the Item Box re-runs LayoutBox()
+        if RefreshShoppingList then RefreshShoppingList() end
+    end)
+
+    return panel
+end
+
+-- Rebuilds the Shopping List's visible rows from ItemWatchDB.shoppingList
+-- and updates each required reagent's "have vs. needed" progress.
+function RefreshShoppingList()
+    if not shoppingListFrame then return end
+    local data = ItemWatchDB.shoppingList
+    if not data.active then return end
+
+    for _, row in pairs(shoppingListRows) do
+        row:Hide()
+    end
+    wipe(shoppingListRows)
+
+    shoppingListFrame.recipeNameText:SetText(data.recipeName or "")
+
+    local yOffset = 0
+    local allSatisfied = true
+
+    -- Conservative chars-per-line estimate for this label's font/width,
+    -- same approach used for the optional-reagents note below and the
+    -- options-panel doc pages - GetStringHeight() right after SetText can
+    -- return a stale single-line value for wrapped text, so estimating
+    -- from character count is the more reliable measure here.
+    local ROW_CHARS_PER_LINE = 26
+    local ROW_LINE_HEIGHT = 13
+    local ROW_MIN_HEIGHT = 20
+    local ROW_GAP = 3
+
+    local contentWidth = shoppingListFrame.content:GetWidth()
+    local rowWidth = math.max(150, contentWidth)
+
+    for _, reagent in ipairs(data.required) do
+        -- Unlike the main Item Box (deliberately bags + reagent bag only,
+        -- for an always-exactly-accurate live count), the Shopping List is
+        -- answering a different question - "do I still need to go buy
+        -- this" - so it should count bank, reagent bank, AND warbank too.
+        -- Otherwise it'll nag you to buy something you already have 300
+        -- of sitting in your bank.
+        local have = C_Item.GetItemCount(reagent.itemID, true, false, true, true)
+        local satisfied = have >= reagent.needed
+        if not satisfied then allSatisfied = false end
+
+        local text = (reagent.name or ("item #"..reagent.itemID)).." ("..have.."/"..reagent.needed..")"
+        if reagent.isBoP then
+            text = text.." |cff888888[vendor/earned only]|r"
+        end
+
+        -- Strip WoW color escape codes before estimating wrapped line
+        -- count - they add invisible characters that would otherwise
+        -- inflate the estimate and reserve more row height than the
+        -- visible text actually needs.
+        local visibleText = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+
+        -- Long item names (e.g. crafted gun components) can wrap to two
+        -- or more lines - size the row to match instead of a fixed
+        -- height, so the next row doesn't overlap this one's text.
+        local estimatedLines = math.max(1, math.ceil(#visibleText / ROW_CHARS_PER_LINE))
+        local rowHeight = math.max(ROW_MIN_HEIGHT, estimatedLines * ROW_LINE_HEIGHT + 6)
+
+        local row = CreateFrame("Button", nil, shoppingListFrame.content)
+        row:SetSize(rowWidth, rowHeight)
+        row:SetPoint("TOPLEFT", shoppingListFrame.content, "TOPLEFT", 0, yOffset)
+
+        local icon = row:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(18, 18)
+        icon:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        local _, _, _, _, _, _, _, _, _, texture = GetItemInfo(reagent.itemID)
+        icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
+
+        local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("TOPLEFT", icon, "TOPRIGHT", 6, 0)
+        label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        label:SetJustifyH("LEFT")
+        label:SetJustifyV("TOP")
+        label:SetWordWrap(true)
+        label:SetText(text)
+        label:SetTextColor(satisfied and 0.2 or 1, satisfied and 1 or 1, satisfied and 0.2 or 1)
+
+        -- Shift-click to link/search, same as the main Item Box's icons
+        local itemID = reagent.itemID
+        row:RegisterForClicks("AnyUp")
+        row:SetScript("OnClick", function()
+            if IsModifiedClick and IsModifiedClick("CHATLINK") then
+                local _, itemLink = GetItemInfo(itemID)
+                if itemLink and HandleModifiedItemClick then
+                    HandleModifiedItemClick(itemLink)
+                end
+            elseif IsModifierKeyDown and IsModifierKeyDown() then
+                local _, itemLink = GetItemInfo(itemID)
+                if itemLink and HandleModifiedItemClick then
+                    HandleModifiedItemClick(itemLink)
+                end
+            end
+        end)
+        row:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetItemByID(itemID)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Shift-click: link in chat / paste into AH search", 0.6, 0.8, 1)
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        shoppingListRows[reagent.itemID] = row
+        yOffset = yOffset - rowHeight - ROW_GAP
+    end
+
+    if #data.optional > 0 then
+        yOffset = yOffset - 8
+        local optText = #data.optional.." optional finishing reagent"..(#data.optional == 1 and "" or "s")..
+            " can be used for this recipe, check the crafting window for details."
+
+        -- Estimate wrapped line count from text length rather than a
+        -- fixed height guess, same approach used for the docs pages -
+        -- a fixed height here previously cut the text off with "..."
+        local CHARS_PER_LINE = 34 -- conservative for this width/font
+        local estimatedLines = math.max(1, math.ceil(#optText / CHARS_PER_LINE))
+        local boxHeight = estimatedLines * 14 + 4
+
+        local optNote = CreateFrame("Frame", nil, shoppingListFrame.content)
+        optNote:SetPoint("TOPLEFT", shoppingListFrame.content, "TOPLEFT", 0, yOffset)
+        optNote:SetPoint("TOPRIGHT", shoppingListFrame.content, "TOPRIGHT", 0, yOffset)
+        optNote:SetHeight(boxHeight)
+        local optNoteText = optNote:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        optNoteText:SetAllPoints(optNote)
+        optNoteText:SetJustifyH("LEFT")
+        optNoteText:SetJustifyV("TOP")
+        optNoteText:SetWordWrap(true)
+        optNoteText:SetTextColor(1, 0.82, 0)
+        optNoteText:SetText(optText)
+        shoppingListRows["_optheader"] = optNote
+        yOffset = yOffset - boxHeight - 6
+    end
+
+    if allSatisfied and #data.required > 0 then
+        shoppingListFrame.statusText:SetText("All set, close this after you craft it!")
+        shoppingListFrame.statusText:Show()
+    else
+        shoppingListFrame.statusText:Hide()
+    end
+end
+
+-- Reads the currently-open recipe (via the confirmed working path on the
+-- Recipes tab) and populates the Shopping List with it.
+local function AddRecipeToShoppingList()
+    if not (ProfessionsFrame and ProfessionsFrame.CraftingPage
+            and ProfessionsFrame.CraftingPage.SchematicForm
+            and ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic) then
+        print("|cffff8800ItemWatch:|r open a recipe on the Recipes tab first.")
+        return
+    end
+    local recipeID = ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic.recipeID
+    if not recipeID then
+        print("|cffff8800ItemWatch:|r couldn't find a selected recipe.")
+        return
+    end
+
+    local ok, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+    if not ok or not schematic then
+        print("|cffff8800ItemWatch:|r couldn't read that recipe's reagents.")
+        return
+    end
+
+    local data = ItemWatchDB.shoppingList
+    data.recipeName = schematic.name
+    data.required = {}
+    data.optional = {}
+
+    if schematic.reagentSlotSchematics then
+        for _, slot in ipairs(schematic.reagentSlotSchematics) do
+            if slot.reagentType == 1 then
+                -- Required reagents are a single fixed item per slot
+                local itemID = slot.reagents and slot.reagents[1] and slot.reagents[1].itemID
+                if itemID then
+                    local name = GetItemInfo(itemID)
+                    local bindType = select(14, GetItemInfo(itemID))
+                    table.insert(data.required, {
+                        itemID = itemID,
+                        name = name,
+                        needed = slot.quantityRequired or 1,
+                        isBoP = (bindType == 1),
+                    })
+                end
+            elseif slot.reagentType == 2 then
+                -- Optional/finishing slots can offer several eligible
+                -- choices (e.g. different embellishments for the same
+                -- socket) - list every choice, not just the first one,
+                -- so the player can see the full menu of options.
+                if slot.reagents then
+                    for _, reagentChoice in ipairs(slot.reagents) do
+                        if reagentChoice.itemID then
+                            local name = GetItemInfo(reagentChoice.itemID)
+                            table.insert(data.optional, { itemID = reagentChoice.itemID, name = name })
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    data.active = true
+    data.dismissed = false
+    print("|cff00ff00ItemWatch:|r added \""..(data.recipeName or "recipe").."\" to your Shopping List.")
+
+    RefreshShoppingList()
+    shoppingListFrame:ClearAllPoints()
+    shoppingListFrame:SetPoint(data.point or "CENTER", UIParent, data.point or "CENTER", data.x or 0, data.y or -150)
+    shoppingListFrame:Show()
+end
+
+local recipeAddButton = nil
+
+-- "Add to ItemWatch" button on the Recipes tab's schematic form. Reuses
+-- AddRecipeToShoppingList() - the same function /iw addrecipe already
+-- calls - so the button and the slash command can never drift out of
+-- sync with each other. Injecting a button into this frame is already
+-- proven safe: Blizzard's own "Track Recipe" checkbox lives here, and
+-- Auctionator injects into the sibling Crafting Order frame the same way.
+local function CreateRecipeAddButton()
+    if recipeAddButton then return end
+    if not (ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm) then
+        return
+    end
+
+    local form = ProfessionsFrame.CraftingPage.SchematicForm
+    local btn = CreateFrame("Button", "ItemWatchAddRecipeButton", form, "UIPanelButtonTemplate")
+    btn:SetSize(172, 22)
+    btn:SetText("Add to Shopping List")
+
+    -- NOTE: anchor is a first guess, not confirmed against the live frame -
+    -- I can't see the actual SchematicForm layout, so this may overlap
+    -- Blizzard's own Create button or the reagent list. Nudge the offsets
+    -- below once you've seen it in-game.
+    btn:SetPoint("BOTTOMLEFT", form, "BOTTOMLEFT", 10, 40)
+
+    btn:SetScript("OnClick", function()
+        AddRecipeToShoppingList()
+    end)
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Add this recipe's reagents to your ItemWatch Shopping List")
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    recipeAddButton = btn
+end
+
 -- Builds a scrollable canvas frame suitable for registering as a Settings
 -- subcategory - same scroll-frame pattern the main panel uses, since
 -- Blizzard doesn't provide this automatically for canvas-style panels.
@@ -1317,6 +1713,32 @@ local function BuildOptionsPanel()
             local practicalPanel = BuildSectionedSubpage("Practical Uses", "Practical Uses for ItemWatch", practicalSections)
             Settings.RegisterCanvasLayoutSubcategory(category, practicalPanel, practicalPanel.name)
 
+            -- Shopping List (the recipe-based Shopping List window, not to
+            -- be confused with the "build your own AH list" tip on the
+            -- Practical Uses page above - that's the main Item Box being
+            -- used informally as a shopping list; this is a separate,
+            -- dedicated window)
+            local shoppingListSections = {
+                { "Not the same as the main box",
+                  "This is a separate window from the Item Box, built specifically for \"I need this right now to craft something\" rather than long-term tracking goals. (If you've seen the Practical Uses tip about building an Auction House list from the main box - that's a different, informal use of the box itself. This page is about the dedicated Shopping List window.)" },
+                { "Starting a Shopping List",
+                  "Open a recipe on the Recipes tab of any profession and click \"Add to Shopping List.\" ItemWatch reads that recipe's full reagent list and builds the list for you automatically - no manual entry needed." },
+                { "Required reagents",
+                  "Each shows a live have/needed count and turns green once you've got enough. These count everything you own: bags, bank, reagent bank, AND warband bank - deliberately different from the main Item Box, which only ever counts bags." },
+                { "Optional reagents",
+                  "Missives, embellishments, and similar finishing reagents show as a plain reminder instead of an auto-added goal - which one you want is a build-specific choice ItemWatch shouldn't make for you." },
+                { "\"[vendor/earned only]\" tag",
+                  "Some required reagents (Sparks, Enchanted Crests, and similar) can't be bought on the Auction House at all. Rather than leave them off the list and risk you getting blindsided at craft time, they're included with this tag so you know it's earned, not purchased." },
+                { "Moving, resizing, and locking",
+                  "Drag the title bar to move the window, drag the bottom-right corner to resize it, and use the lock icon next to the X to stop accidental drags or resizes while you're clicking around inside it." },
+                { "It stays open across logout",
+                  "If you get pulled away mid-task, the Shopping List (including its progress) is still there when you log back in - it doesn't just vanish like the Quick-Add popup would." },
+                { "\"All set, close this after you craft it!\"",
+                  "Once every required reagent is satisfied, the window tells you so - but doesn't close itself automatically, since having the materials isn't the same as having actually crafted the item yet. Dismiss it with the X whenever you're done." },
+            }
+            local shoppingListPanel = BuildSectionedSubpage("Shopping List", "The Recipe Shopping List", shoppingListSections)
+            Settings.RegisterCanvasLayoutSubcategory(category, shoppingListPanel, shoppingListPanel.name)
+
             -- Support
             local supportPanel, supportContent = CreateScrollableSubcategory("Contact/Support")
             local supportTitle = supportContent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -1400,11 +1822,14 @@ eventFrame:RegisterEvent("PET_BATTLE_OPENING_START")
 eventFrame:RegisterEvent("PET_BATTLE_CLOSE")
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
-    if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
+    if event == "ADDON_LOADED" and arg1 == "Blizzard_Professions" then
+        CreateRecipeAddButton()
+    elseif event == "ADDON_LOADED" and arg1 == ADDON_NAME then
         ItemWatchDB = CopyDefaults(defaults, ItemWatchDB or {})
         itemBox = CreateItemBox()
         quickAddFrame = CreateQuickAddPopup()
         itemEditFrame = CreateItemEditPopup()
+        shoppingListFrame = CreateShoppingListWindow()
         for _, entry in ipairs(ItemWatchDB.items) do
             frames[entry.id] = CreateItemFrame(entry)
         end
@@ -1413,9 +1838,23 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         BuildOptionsPanel()
         CreateMinimapButton()
         UpdateBoxVisibility()
+
+        -- Restore the Shopping List across logout/reload if it was left
+        -- open and not dismissed - the whole point of persisting it is so
+        -- someone who got pulled away mid-task sees it again on login
+        local sl = ItemWatchDB.shoppingList
+        if sl.active and not sl.dismissed then
+            RefreshShoppingList()
+            shoppingListFrame:ClearAllPoints()
+            shoppingListFrame:SetPoint(sl.point or "CENTER", UIParent, sl.point or "CENTER", sl.x or 0, sl.y or -150)
+            shoppingListFrame:Show()
+        end
     elseif event == "BAG_UPDATE_DELAYED" then
         bagsReady = true
         RefreshAll()
+        if ItemWatchDB.shoppingList.active and not ItemWatchDB.shoppingList.dismissed then
+            RefreshShoppingList()
+        end
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         -- item data can arrive late from the server; refresh once it's in
         RefreshAll()
@@ -1455,6 +1894,183 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         ItemWatchDB.locked = false
         if itemBox and itemBox.UpdateLockIcon then itemBox.UpdateLockIcon() end
         print("|cff00ff00ItemWatch:|r frames unlocked - drag them to move.")
+    elseif cmd == "addrecipe" then
+        AddRecipeToShoppingList()
+    elseif cmd == "craftdebug" then
+        -- Diagnostic tool: open a recipe in the Professions window first,
+        -- then run this. Tries a few known ways to find the currently
+        -- selected recipe and its reagent schematic, and reports exactly
+        -- what worked and what didn't - Blizzard's crafting UI internals
+        -- have shifted between expansions, so this checks reality instead
+        -- of assuming any one path is still correct.
+        print("|cff00ffffItemWatch craftdebug:|r starting diagnostic...")
+
+        -- The crafting order window has been confirmed NOT to live inside
+        -- ProfessionsFrame, so rather than guess another specific frame
+        -- name, scan every global frame currently loaded for anything
+        -- with "Order" in its name that's actually shown right now -
+        -- this finds the real name empirically instead of guessing again.
+        print("|cff00ffff  Scanning for shown frames with 'Order' in the name...")
+        local foundAny = false
+        for name, obj in pairs(_G) do
+            if type(name) == "string" and name:lower():find("order") and type(obj) == "table"
+               and obj.IsShown and type(obj.IsShown) == "function" then
+                local ok, shown = pcall(obj.IsShown, obj)
+                if ok and shown then
+                    print("|cff00ff00    FOUND (shown): "..name)
+                    foundAny = true
+                end
+            end
+        end
+        if not foundAny then
+            print("|cffff8800    No shown frame with 'Order' in its name was found.")
+        end
+
+        if not ProfessionsFrame then
+            print("|cffff8800  ProfessionsFrame doesn't exist - are you sure this client has it?")
+            return
+        end
+        print("|cff00ffff  ProfessionsFrame exists. Shown: |r"..tostring(ProfessionsFrame:IsShown()))
+
+        local recipeID = nil
+        local foundVia = nil
+
+        -- Confirmed via scan: the crafting order window is its own frame,
+        -- ProfessionsCustomerOrdersFrame, not nested inside ProfessionsFrame
+        -- at all. Rather than guess the exact nesting inside it, recursively
+        -- search its children for anything with recipe data, bounded to a
+        -- shallow depth so it doesn't take forever.
+        if ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame:IsShown() then
+            print("|cff00ff00  ProfessionsCustomerOrdersFrame is shown - searching its children...")
+            local seen = {}
+            local function searchForRecipe(frame, depth, path)
+                if depth > 5 or type(frame) ~= "table" or seen[frame] then return nil end
+                seen[frame] = true
+
+                -- Print this frame's own name/type if it has one, so we
+                -- can see the actual structure even if we don't find a
+                -- match - useful for figuring out the next guess.
+                local okName, fname = pcall(function() return frame.GetName and frame:GetName() end)
+                if depth <= 2 and okName and fname then
+                    print("|cff888888    (depth "..depth..") "..path.." = "..fname)
+                end
+
+                local ok, schematic = pcall(function() return frame.recipeSchematic end)
+                if ok and type(schematic) == "table" and schematic.recipeID then
+                    return schematic.recipeID, path.." (via .recipeSchematic.recipeID)"
+                end
+                -- Also check for a bare .recipeID directly on this object
+                local ok2, directID = pcall(function() return frame.recipeID end)
+                if ok2 and type(directID) == "number" then
+                    return directID, path.." (via .recipeID directly)"
+                end
+
+                if frame.GetChildren then
+                    local okC, children = pcall(function() return { frame:GetChildren() } end)
+                    if okC then
+                        for i, child in ipairs(children) do
+                            local foundID, foundPath = searchForRecipe(child, depth + 1, path.."/child"..i)
+                            if foundID then return foundID, foundPath end
+                        end
+                    end
+                end
+                return nil
+            end
+            local foundID, foundPath = searchForRecipe(ProfessionsCustomerOrdersFrame, 0, "ProfessionsCustomerOrdersFrame")
+            if foundID then
+                recipeID = foundID
+                foundVia = foundPath
+            else
+                print("|cffff8800  Searched but didn't find a recipeSchematic or recipeID anywhere in its children.")
+            end
+        end
+
+        local craftingShown = ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage:IsShown()
+        local ordersShown = ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage:IsShown()
+        print("|cff00ffff  CraftingPage shown: "..tostring(craftingShown)..
+              " | OrdersPage shown: "..tostring(ordersShown))
+
+        if recipeID then
+            -- already found via the ProfessionsCustomerOrdersFrame search
+            -- above, skip these older/fallback checks entirely
+        elseif ordersShown then
+            -- Place Crafting Order window - a different frame path than
+            -- the regular Recipes tab. Trying a few plausible nestings
+            -- since this hasn't been confirmed working yet.
+            local attempts = {
+                { "OrdersPage.OrderView.OrderInfo.SchematicForm", function()
+                    return ProfessionsFrame.OrdersPage.OrderView
+                       and ProfessionsFrame.OrdersPage.OrderView.OrderInfo
+                       and ProfessionsFrame.OrdersPage.OrderView.OrderInfo.SchematicForm
+                       and ProfessionsFrame.OrdersPage.OrderView.OrderInfo.SchematicForm.recipeSchematic
+                       and ProfessionsFrame.OrdersPage.OrderView.OrderInfo.SchematicForm.recipeSchematic.recipeID
+                end },
+                { "OrdersPage.OrderView.SchematicForm", function()
+                    return ProfessionsFrame.OrdersPage.OrderView
+                       and ProfessionsFrame.OrdersPage.OrderView.SchematicForm
+                       and ProfessionsFrame.OrdersPage.OrderView.SchematicForm.recipeSchematic
+                       and ProfessionsFrame.OrdersPage.OrderView.SchematicForm.recipeSchematic.recipeID
+                end },
+                { "OrdersPage.SchematicForm", function()
+                    return ProfessionsFrame.OrdersPage.SchematicForm
+                       and ProfessionsFrame.OrdersPage.SchematicForm.recipeSchematic
+                       and ProfessionsFrame.OrdersPage.SchematicForm.recipeSchematic.recipeID
+                end },
+            }
+            for _, attempt in ipairs(attempts) do
+                local label, fn = attempt[1], attempt[2]
+                local ok, result = pcall(fn)
+                if ok and result then
+                    recipeID = result
+                    foundVia = "OrdersPage: "..label
+                    break
+                end
+            end
+        elseif craftingShown then
+            -- Regular Recipes tab
+            local ok1, result1 = pcall(function()
+                return ProfessionsFrame.CraftingPage.SchematicForm
+                   and ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic
+                   and ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic.recipeID
+            end)
+            if ok1 and result1 then
+                recipeID = result1
+                foundVia = "CraftingPage.SchematicForm.recipeSchematic.recipeID"
+            end
+        else
+            print("|cffff8800  Neither CraftingPage nor OrdersPage is currently shown.")
+        end
+
+        if not recipeID then
+            print("|cffff8800  Couldn't find a selected recipe through any known path.")
+            print("|cffff8800  Make sure a recipe is actually open/selected, not just the profession window.")
+            return
+        end
+
+        print("|cff00ff00  Found recipe ID: "..recipeID.." (via "..foundVia..")")
+
+        local okS, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+        if not okS or not schematic then
+            print("|cffff8800  GetRecipeSchematic call failed or returned nothing.")
+            return
+        end
+
+        print("|cff00ff00  Recipe name: "..tostring(schematic.name))
+        print("|cff00ff00  Reagent slots found: "..tostring(schematic.reagentSlotSchematics and #schematic.reagentSlotSchematics or 0))
+
+        if schematic.reagentSlotSchematics then
+            for i, slot in ipairs(schematic.reagentSlotSchematics) do
+                local reagentType = slot.reagentType -- 1=required/basic, 2=optional/finishing, etc.
+                local qtyRequired = slot.quantityRequired
+                local itemID = slot.reagents and slot.reagents[1] and slot.reagents[1].itemID
+                local itemName = itemID and (GetItemInfo(itemID) or ("item #"..itemID)) or "unknown"
+                local bindType = itemID and select(14, GetItemInfo(itemID))
+                local bopLabel = (bindType == 1) and "BoP (vendor/earned only)" or "not BoP (AH-purchasable)"
+                print(string.format("|cff00ffff    Slot %d: %s | qty needed: %s | reagentType: %s | itemID: %s | %s",
+                    i, itemName, tostring(qtyRequired), tostring(reagentType), tostring(itemID), bopLabel))
+            end
+        end
+        print("|cff00ffffItemWatch craftdebug:|r done.")
     elseif cmd == "list" then
         if #ItemWatchDB.items == 0 then
             print("|cffff8800ItemWatch:|r no items tracked.")
