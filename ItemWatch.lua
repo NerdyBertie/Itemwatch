@@ -4,7 +4,7 @@ local ADDON_NAME, ns = ...
 local defaults = {
     items = {},      -- list of { id = itemID, point = "CENTER", x = 0, y = 0 }
     locked = false,
-    selectedSound = { type = "file", id = 558132, name = "Peon - Work Complete!" },
+    selectedSound = { type = "file", id = 558132, name = "Orc Peon - Work Complete!" },
     box = { point = "CENTER", x = 0, y = 150, width = 220, height = 180 },
     hideInCombat = false,
     hideInPetBattles = false,
@@ -13,11 +13,12 @@ local defaults = {
         active = false,      -- whether there's a current shopping list to show
         dismissed = true,    -- true = window closed/hidden by the user
         recipeName = nil,
-        required = {},       -- { itemID, name, needed, isBoP }
+        required = {},       -- { itemID, name, perCraft, needed, isBoP }
         optional = {},       -- { itemID, name } - reminder-only, no goal tracking
         point = "CENTER", x = 0, y = -150,
         width = 260, height = 400,
         locked = false,
+        craftQuantity = 1,   -- how many of the recipe you're making; scales each required reagent's "needed" amount
     },
 }
 
@@ -71,6 +72,22 @@ StaticPopupDialogs["ITEMWATCH_CONFIRM_CLEAR"] = {
         wipe(ItemWatchDB.items)
         print("|cff00ff00ItemWatch:|r cleared all tracked items.")
     end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+-- Confirmation before replacing an already-active Shopping List. text and
+-- OnAccept get overwritten per-click right before StaticPopup_Show (this
+-- is standard practice for a dialog whose message depends on which recipe
+-- was clicked) - failsafe against both "I changed my mind on the recipe"
+-- and an accidental double-click on the button.
+StaticPopupDialogs["ITEMWATCH_CONFIRM_REPLACE_SHOPPING_LIST"] = {
+    text = "Replace your current Shopping List?",
+    button1 = "Replace",
+    button2 = "Cancel",
+    OnAccept = function() end, -- overwritten before showing
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
@@ -563,15 +580,30 @@ end
 -- chime, Coin sound. type="file" uses PlaySoundFile with a FileDataID; type="kit" uses
 -- PlaySound with a SOUNDKIT name.
 local SOUND_PRESETS = {
-    { type = "file", id = 558132, name = "Peon - Work Complete!" },
+    { type = "file", id = 558132, name = "Orc Peon - Work Complete!" },
+    -- Both Orc Peon lines together, since they're the same voice
+    { type = "file", id = 558146, name = "Orc Peon - Me not that kind of orc!" },
     { type = "kit", id = "READY_CHECK", name = "Ready Check (loud!)" },
     { type = "kitid", id = 12891, name = "Achievement Ding" },
     { type = "kit", id = "MONEY_FRAME_OPEN", name = "Coin Sound (quiet)" },
     { type = "file", id = 3598637, name = "Cat Meow" },
     { type = "kitid", id = 6574, name = "Aquatic Form Burp" },
     { type = "file", id = 563010, name = "Commander Ulthok (startling - you've been warned!)" },
+    { type = "file", id = 552503, name = "Illidan - You are not prepared!" },
     { type = "file", id = 5768798, name = "Brann - Here we go!", header = "Brann Bronzebeard (in case you miss him <3)" },
     { type = "file", id = 5768826, name = "Brann - Time to go all out!" },
+    -- Confirmed working in-game via the Custom FileDataID tester (all 10
+    -- IDs sourced from Wowhead - same "listed doesn't always mean it
+    -- plays" caveat as the cut Brann "Found a bit o' gold!" line above,
+    -- but these all checked out fine).
+    { type = "file", id = 2922117, name = "Thrall - Lok'tar!", header = "Horde Legends (fun & thematic)" },
+    { type = "file", id = 561230, name = "Sylvanas - So it is done" },
+    { type = "file", id = 2416540, name = "Baine Bloodhoof - For the Horde, always" },
+    { type = "file", id = 2961766, name = "Monte Gazlowe - Business is Boomin'!" },
+    { type = "file", id = 2973518, name = "Genn Greymane - So many... dead... (a bit morbid - fun for skinners!)", header = "Alliance Champions (fun & thematic)" },
+    { type = "file", id = 2468409, name = "Tyrande Whisperwind - Ishnu-ala" },
+    { type = "file", id = 5715478, name = "Magni Bronzebeard - Always more work to be done" },
+    { type = "file", id = 3192654, name = "Gelbin Mekkatorque - There's always time to tinker" },
 }
 
 -- Sentinel table representing "explicitly no sound for this item" - distinct
@@ -843,7 +875,7 @@ local itemEditButtons = {}
 -- Opened by left-clicking a tracked item's icon inside the box.
 local function CreateItemEditPopup()
     local panel = CreateFrame("Frame", "ItemWatchItemEdit", UIParent, "BackdropTemplate")
-    panel:SetSize(320, 645)
+    panel:SetSize(320, 700)
     panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     panel:SetFrameStrata("DIALOG")
     panel:SetBackdrop({
@@ -884,11 +916,24 @@ local function CreateItemEditPopup()
     soundLabel:SetPoint("TOPLEFT", goalBox, "BOTTOMLEFT", -6, -18)
     soundLabel:SetText("Goal-reached sound for this item:")
 
+    -- Sound list now scrolls - the preset list has grown enough (and will
+    -- likely keep growing) that a fixed-height popup can't reliably fit
+    -- it all. Icon/name/goal stay pinned above, Save/Cancel stay pinned
+    -- below; only this middle section scrolls.
+    local soundScroll = CreateFrame("ScrollFrame", "ItemWatchItemEditSoundScroll", panel, "UIPanelScrollFrameTemplate")
+    soundScroll:SetPoint("TOPLEFT", soundLabel, "BOTTOMLEFT", 6, -10)
+    soundScroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -34, 54)
+
+    local soundContent = CreateFrame("Frame", "ItemWatchItemEditSoundContent", soundScroll)
+    soundContent:SetSize(252, 10) -- height finalized below once every button is laid out
+    soundScroll:SetScrollChild(soundContent)
+
     wipe(itemEditButtons)
     local lastBtn = nil
     local LABEL_WRAP_WIDTH = 252 -- fits comfortably within the widened popup
     local BASE_GAP = 10 -- original tight spacing for a normal single-line row
     local SINGLE_LINE_HEIGHT = 12 -- roughly one line at this font size
+    local ITEM_BASE_HEIGHT = 20 -- approximate checkbox+label height, used only for the scroll content's total height estimate
 
     -- Constrains a radio label to wrap instead of running off the edge,
     -- and returns the vertical gap the NEXT item should use below this
@@ -904,40 +949,74 @@ local function CreateItemEditPopup()
         return BASE_GAP + extra
     end
 
-    local defaultBtn = CreateOptionRadio(panel, "Use ItemWatch's global default\n(set in /iw options)")
-    defaultBtn:SetPoint("TOPLEFT", soundLabel, "BOTTOMLEFT", 6, -12)
+    -- Running total for the scroll content's final height - a slightly
+    -- generous estimate (a little extra blank scroll space at the bottom
+    -- is harmless; an underestimate would clip the last few presets,
+    -- which is the exact bug this scroll frame exists to fix).
+    local totalHeight = 0
+
+    -- A few pixels of top padding - without it, the first checkbox's own
+    -- highlight/glow texture (which extends slightly past its nominal
+    -- frame bounds) sits flush with the scroll area's top edge and gets
+    -- clipped by the ScrollFrame boundary.
+    local TOP_PADDING = 6
+
+    local defaultBtn = CreateOptionRadio(soundContent, "Use ItemWatch's global default\n(set in /iw options)")
+    defaultBtn:SetPoint("TOPLEFT", soundContent, "TOPLEFT", 0, -TOP_PADDING)
     defaultBtn.choice = nil
     table.insert(itemEditButtons, defaultBtn)
     lastBtn = defaultBtn
     local nextGap = ConstrainAndMeasure(defaultBtn)
+    totalHeight = totalHeight + TOP_PADDING + ITEM_BASE_HEIGHT + nextGap
 
-    local muteBtn = CreateOptionRadio(panel, MUTED_SOUND.name)
+    local muteBtn = CreateOptionRadio(soundContent, MUTED_SOUND.name)
     muteBtn:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", 0, -nextGap)
     muteBtn.choice = MUTED_SOUND
     table.insert(itemEditButtons, muteBtn)
     lastBtn = muteBtn
     nextGap = ConstrainAndMeasure(muteBtn)
+    totalHeight = totalHeight + ITEM_BASE_HEIGHT + nextGap
 
     for _, choice in ipairs(SOUND_PRESETS) do
         if choice.header then
-            local header = panel:CreateFontString(nil, "OVERLAY")
+            -- Divider line + extra breathing room above and below each
+            -- new category, so groups read as visually distinct sections
+            -- instead of one continuous block of checkboxes.
+            local divider = soundContent:CreateTexture(nil, "ARTWORK")
+            divider:SetColorTexture(0.5, 0.5, 0.5, 0.4)
+            divider:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", 0, -(nextGap + 10))
+            divider:SetSize(LABEL_WRAP_WIDTH, 1)
+            totalHeight = totalHeight + nextGap + 10 + 1
+
+            local header = soundContent:CreateFontString(nil, "OVERLAY")
             header:SetFont("Fonts\\FRIZQT__.ttf", 13, "OUTLINE")
-            header:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", -6, -(nextGap + 6))
+            -- Flush with the checkbox column (x=0), not outdented - inside
+            -- a ScrollFrame's clipped content area, any negative x-offset
+            -- pushes past the visible/scrollable bounds and gets clipped,
+            -- which is exactly what was cutting off the H in "Horde" and
+            -- the A in "Alliance" here.
+            header:SetPoint("TOPLEFT", divider, "BOTTOMLEFT", 0, -10)
             header:SetTextColor(1, 0.82, 0)
-            header:SetWidth(LABEL_WRAP_WIDTH + 6)
+            header:SetWidth(LABEL_WRAP_WIDTH)
             header:SetWordWrap(true)
             header:SetJustifyH("LEFT")
             header:SetText(choice.header)
             lastBtn = header
-            nextGap = ConstrainAndMeasure(header)
+            -- Extra +6 below the header itself before the group's first
+            -- item, on top of the usual wrap-aware gap.
+            nextGap = ConstrainAndMeasure(header) + 6
+            totalHeight = totalHeight + 10 + ITEM_BASE_HEIGHT + nextGap
         end
-        local btn = CreateOptionRadio(panel, choice.name)
-        btn:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", choice.header and 6 or 0, -nextGap)
+        local btn = CreateOptionRadio(soundContent, choice.name)
+        btn:SetPoint("TOPLEFT", lastBtn, "BOTTOMLEFT", 0, -nextGap)
         btn.choice = choice
         table.insert(itemEditButtons, btn)
         lastBtn = btn
         nextGap = ConstrainAndMeasure(btn)
+        totalHeight = totalHeight + ITEM_BASE_HEIGHT + nextGap
     end
+
+    soundContent:SetHeight(totalHeight + 30)
 
     local function SelectEditSound(choice)
         panel.selectedSound = choice
@@ -1013,6 +1092,23 @@ end
 
 local shoppingListFrame = nil
 local shoppingListRows = {} -- itemID -> row frame, for required reagents
+
+-- Rescales every required reagent's "needed" amount by a new craft
+-- quantity (e.g. making 20 potions instead of 1), using each reagent's
+-- stored perCraft amount as the base so this can be called repeatedly
+-- without compounding. Older saved lists from before this field existed
+-- won't have perCraft yet - fall back to treating the current needed
+-- amount as the per-craft base in that case.
+local function ApplyCraftQuantity(newQty)
+    local data = ItemWatchDB.shoppingList
+    newQty = math.max(1, math.floor(tonumber(newQty) or 1))
+    data.craftQuantity = newQty
+    for _, reagent in ipairs(data.required) do
+        reagent.perCraft = reagent.perCraft or reagent.needed or 1
+        reagent.needed = reagent.perCraft * newQty
+    end
+    if RefreshShoppingList then RefreshShoppingList() end
+end
 
 -- Builds the Shopping List window - separate from the main Item Box,
 -- for "I need this right now to craft something" rather than long-term
@@ -1114,8 +1210,38 @@ local function CreateShoppingListWindow()
 
     local content = CreateFrame("Frame", nil, panel)
     content:SetPoint("TOPLEFT", recipeNameText, "BOTTOMLEFT", 0, -8)
-    content:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 30)
+    content:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 56)
     panel.content = content
+
+    -- Craft quantity - "how many of the recipe are you making," not tied
+    -- to the reagent row list, so it's anchored to the panel's own
+    -- bottom edge (like statusText below) rather than living inside
+    -- content. That keeps it always visible regardless of resizing or
+    -- how many reagents there are to scroll past. Changing this re-scales
+    -- every required reagent's needed amount live - see ApplyCraftQuantity.
+    local craftQtyLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    craftQtyLabel:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 6, 32)
+    craftQtyLabel:SetText("Crafting:")
+
+    local craftQtyBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    craftQtyBox:SetSize(44, 20)
+    craftQtyBox:SetAutoFocus(false)
+    craftQtyBox:SetNumeric(true)
+    craftQtyBox:SetPoint("LEFT", craftQtyLabel, "RIGHT", 10, 0)
+    craftQtyBox:SetText(tostring(ItemWatchDB.shoppingList.craftQuantity or 1))
+    craftQtyBox:SetScript("OnEnterPressed", function(self)
+        ApplyCraftQuantity(self:GetText())
+        self:ClearFocus()
+    end)
+    craftQtyBox:SetScript("OnEditFocusLost", function(self)
+        ApplyCraftQuantity(self:GetText())
+    end)
+    craftQtyBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    panel.craftQtyBox = craftQtyBox
+
+    local craftQtyHint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    craftQtyHint:SetPoint("LEFT", craftQtyBox, "RIGHT", 6, 0)
+    craftQtyHint:SetText("x this recipe")
 
     local statusText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     statusText:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 6, 8)
@@ -1162,6 +1288,13 @@ function RefreshShoppingList()
     wipe(shoppingListRows)
 
     shoppingListFrame.recipeNameText:SetText(data.recipeName or "")
+
+    -- Keep the craft-quantity field in sync with saved data (e.g. after
+    -- restoring from logout, or a resize triggering a re-layout) - but
+    -- never stomp on it while the player's actively typing a new value.
+    if shoppingListFrame.craftQtyBox and not shoppingListFrame.craftQtyBox:HasFocus() then
+        shoppingListFrame.craftQtyBox:SetText(tostring(data.craftQuantity or 1))
+    end
 
     local yOffset = 0
     local allSatisfied = true
@@ -1292,29 +1425,16 @@ end
 
 -- Reads the currently-open recipe (via the confirmed working path on the
 -- Recipes tab) and populates the Shopping List with it.
-local function AddRecipeToShoppingList()
-    if not (ProfessionsFrame and ProfessionsFrame.CraftingPage
-            and ProfessionsFrame.CraftingPage.SchematicForm
-            and ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic) then
-        print("|cffff8800ItemWatch:|r open a recipe on the Recipes tab first.")
-        return
-    end
-    local recipeID = ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic.recipeID
-    if not recipeID then
-        print("|cffff8800ItemWatch:|r couldn't find a selected recipe.")
-        return
-    end
-
-    local ok, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
-    if not ok or not schematic then
-        print("|cffff8800ItemWatch:|r couldn't read that recipe's reagents.")
-        return
-    end
-
+-- Builds the Shopping List from an already-read recipe schematic. Split
+-- out from AddRecipeToShoppingList so the confirmation prompt below can
+-- read the recipe first (to know its name for the prompt text) before
+-- deciding whether to apply it immediately or ask first.
+local function ApplyRecipeToShoppingList(schematic)
     local data = ItemWatchDB.shoppingList
     data.recipeName = schematic.name
     data.required = {}
     data.optional = {}
+    data.craftQuantity = 1 -- fresh recipe = fresh craft count, not whatever the last one was left at
 
     if schematic.reagentSlotSchematics then
         for _, slot in ipairs(schematic.reagentSlotSchematics) do
@@ -1324,10 +1444,12 @@ local function AddRecipeToShoppingList()
                 if itemID then
                     local name = GetItemInfo(itemID)
                     local bindType = select(14, GetItemInfo(itemID))
+                    local perCraft = slot.quantityRequired or 1
                     table.insert(data.required, {
                         itemID = itemID,
                         name = name,
-                        needed = slot.quantityRequired or 1,
+                        perCraft = perCraft,   -- amount needed for ONE craft; the craft-quantity field scales this
+                        needed = perCraft,     -- craftQuantity is 1 on a fresh add, so needed == perCraft for now
                         isBoP = (bindType == 1),
                     })
                 end
@@ -1356,6 +1478,48 @@ local function AddRecipeToShoppingList()
     shoppingListFrame:ClearAllPoints()
     shoppingListFrame:SetPoint(data.point or "CENTER", UIParent, data.point or "CENTER", data.x or 0, data.y or -150)
     shoppingListFrame:Show()
+end
+
+-- Reads the currently-open recipe (via the confirmed working path on the
+-- Recipes tab). If a Shopping List is already active, confirms before
+-- replacing it - protects both "I changed my mind on the recipe" and an
+-- accidental double-click on the button.
+local function AddRecipeToShoppingList()
+    if not (ProfessionsFrame and ProfessionsFrame.CraftingPage
+            and ProfessionsFrame.CraftingPage.SchematicForm
+            and ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic) then
+        print("|cffff8800ItemWatch:|r open a recipe on the Recipes tab first.")
+        return
+    end
+    local recipeID = ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic.recipeID
+    if not recipeID then
+        print("|cffff8800ItemWatch:|r couldn't find a selected recipe.")
+        return
+    end
+
+    local ok, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+    if not ok or not schematic then
+        print("|cffff8800ItemWatch:|r couldn't read that recipe's reagents.")
+        return
+    end
+
+    local data = ItemWatchDB.shoppingList
+    -- Only prompt if there's a list that's both active AND still open -
+    -- closing the window (the X button) signals "I'm done with this
+    -- recipe," so a fresh add afterward should just proceed without
+    -- asking. Same active-and-not-dismissed pairing the logout-restore
+    -- logic already uses, for consistency.
+    if data.active and not data.dismissed then
+        StaticPopupDialogs["ITEMWATCH_CONFIRM_REPLACE_SHOPPING_LIST"].text =
+            "Replace your current Shopping List (\""..(data.recipeName or "current recipe")..
+            "\") with \""..(schematic.name or "this recipe").."\"?"
+        StaticPopupDialogs["ITEMWATCH_CONFIRM_REPLACE_SHOPPING_LIST"].OnAccept = function()
+            ApplyRecipeToShoppingList(schematic)
+        end
+        StaticPopup_Show("ITEMWATCH_CONFIRM_REPLACE_SHOPPING_LIST")
+    else
+        ApplyRecipeToShoppingList(schematic)
+    end
 end
 
 local recipeAddButton = nil
@@ -1503,12 +1667,20 @@ local function BuildOptionsPanel()
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -27, 4)
 
     local content = CreateFrame("Frame", "ItemWatchOptionsScrollChild", scrollFrame)
-    content:SetSize(560, 800) -- explicit size; scroll frames need this, not stretchy anchors
+    content:SetSize(560, 1400) -- explicit size; scroll frames need this, not stretchy anchors. Bumped up to comfortably fit the now much-longer sound preset list plus everything below it.
     scrollFrame:SetScrollChild(content)
 
     local title = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
     title:SetText("ItemWatch")
+
+    -- Scroll hint lives up here now, not next to the Visibility header
+    -- further down - the sound preset list has grown enough that anyone
+    -- reading a "scroll down for more" note ON the Visibility section
+    -- has, by definition, already had to scroll down to see it.
+    local scrollHint = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    scrollHint:SetPoint("LEFT", title, "RIGHT", 10, -2)
+    scrollHint:SetText("(scroll down for more)")
 
     local subtitle = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
@@ -1606,7 +1778,7 @@ local function BuildOptionsPanel()
     -- Visibility section
     local visTitle = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     visTitle:SetPoint("TOPLEFT", testBtn, "BOTTOMLEFT", 4, -20)
-    visTitle:SetText("Visibility (scroll down for more)")
+    visTitle:SetText("Visibility")
 
     local visSubtitle = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     visSubtitle:SetPoint("TOPLEFT", visTitle, "BOTTOMLEFT", 0, -6)
@@ -1691,6 +1863,8 @@ local function BuildOptionsPanel()
                   "The Visibility section below can hide the box during combat or pet battles. Tracking keeps running in the background either way - nothing is lost." },
                 { "Prefer typing commands?",
                   "All the original /iw commands still work exactly as before - the box and popups are additional ways in, not replacements. Type /iw for the full list." },
+                { "Missed the What's New popup?",
+                  "If you closed it by accident, or just want to see the latest highlights again, type /iw whatsnew any time to bring it back up." },
             }
             local helpPanel = BuildSectionedSubpage("Helpful Information", "How to Use ItemWatch", helpSections)
             Settings.RegisterCanvasLayoutSubcategory(category, helpPanel, helpPanel.name)
@@ -1794,7 +1968,7 @@ local function BuildOptionsPanel()
             aboutBody:SetWidth(500)
             aboutBody:SetJustifyH("LEFT")
             aboutBody:SetWordWrap(true)
-            aboutBody:SetText("ItemWatch started as a way to stop opening bags every five seconds while farming. It's grown into a full item-goal tracker: a movable box, per-item sounds, and a minimap button - built for anyone who'd rather glance at a number than dig through their bags.")
+            aboutBody:SetText("ItemWatch started as a way to stop opening bags every five seconds while farming. It's grown into a full item-goal tracker: a movable box, per-item sounds, and a minimap button - built for anyone who'd rather glance at a number than dig through their bags. More recently it picked up a Recipe Shopping List too, so a whole crafting run's worth of reagents comes together with one click instead of adding each mat by hand.")
 
             local aboutLinks = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
             aboutLinks:SetPoint("TOPLEFT", aboutBody, "BOTTOMLEFT", -4, -20)
@@ -1811,6 +1985,173 @@ local function BuildOptionsPanel()
     end
 end
 
+-- Reads the addon's real version straight from the .toc, so this never
+-- needs manual syncing with a hardcoded string somewhere else in the file.
+local function GetAddonVersion()
+    if C_AddOns and C_AddOns.GetAddOnMetadata then
+        return C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")
+    elseif GetAddOnMetadata then
+        return GetAddOnMetadata(ADDON_NAME, "Version")
+    end
+    return nil
+end
+
+-- Newest release first. Add a new entry here each time you ship - the
+-- popup below automatically features whichever one is first in the list
+-- and lists anything older underneath in compact form.
+local CHANGELOG = {
+    {
+        version = "2.2.2",
+        highlights = {
+            "Fixed the sound picker running off the edge of the item-edit popup (left-click a tracked item) - it now scrolls properly and won't overflow again as more presets get added.",
+            "Fixed the \"Horde Legends\" and \"Alliance Champions\" section labels getting their first letter clipped off.",
+            "Added divider lines between sound categories so they're easier to scan at a glance.",
+        },
+    },
+    {
+        version = "2.2.1",
+        highlights = {
+            "NEW: Recipe Shopping List - click \"Add to Shopping List\" right on any recipe in the Professions Recipes tab, and ItemWatch reads its reagent list and builds your shopping list for you automatically. No more adding each mat by hand.",
+            "Crafting more than one? Set how many in the Shopping List's own \"Crafting: __ x this recipe\" field, and every reagent's needed amount updates live - no need to re-open the recipe.",
+            "Shift-click any item in the Shopping List to drop it straight into the Auction House search bar - same trick you already know from the main box, works here too.",
+            "The Shopping List counts your bank, reagent bank, AND warband bank (not just bags), so it won't nag you to buy something you've already got stashed away.",
+            "The Shopping List window is movable, resizable, and lockable, and stays put across logout if you get pulled away mid-farm.",
+            "Clicking \"Add to Shopping List\" while one's already active now asks before replacing it, so an accidental click (or changing your mind on the recipe) won't wipe your progress.",
+        },
+    },
+}
+
+local whatsNewFrame = nil
+
+-- Builds the "What's New" popup - a quick pitch for anyone new to
+-- ItemWatch, plus the latest release's highlights. Shown once per
+-- version, gated by comparing the addon's real .toc version against
+-- ItemWatchDB.lastSeenVersion, so there's no manual "have they seen
+-- this release yet" bookkeeping needed anywhere else.
+local function CreateWhatsNewPopup()
+    local panel = CreateFrame("Frame", "ItemWatchWhatsNew", UIParent, "BackdropTemplate")
+    panel:SetSize(420, 460)
+    panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    panel:SetFrameStrata("DIALOG")
+    panel:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    panel:EnableMouse(true)
+    panel:SetMovable(true)
+    panel:RegisterForDrag("LeftButton")
+    panel:SetScript("OnDragStart", panel.StartMoving)
+    panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
+    panel:Hide()
+
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", panel, "TOP", 0, -16)
+    title:SetText("What's New in ItemWatch")
+
+    local scrollFrame = CreateFrame("ScrollFrame", "ItemWatchWhatsNewScroll", panel, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -44)
+    scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -34, 46)
+
+    local content = CreateFrame("Frame", "ItemWatchWhatsNewScrollChild", scrollFrame)
+    content:SetSize(340, 10) -- height gets finalized below once text is laid out
+    scrollFrame:SetScrollChild(content)
+
+    -- Conservative chars-per-line estimate, same reasoning as the
+    -- Shopping List rows and the options-panel doc pages: GetStringHeight()
+    -- right after SetText can return a stale single-line value for
+    -- wrapped text, so estimating from character count is more reliable.
+    local CHARS_PER_LINE = 48
+    local LINE_HEIGHT = 16
+
+    local introText = "Stop checking your bags! ItemWatch keeps an eye on your farming so "..
+        "you don't have to - set a goal, watch the icon turn green, and let a sound of "..
+        "your choosing tell you the second you're done. ItemWatch has got you, fam!"
+
+    local intro = content:CreateFontString(nil, "ARTWORK")
+    intro:SetFont("Fonts\\FRIZQT__.ttf", 13, "")
+    intro:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+    intro:SetWidth(340)
+    intro:SetJustifyH("LEFT")
+    intro:SetWordWrap(true)
+    intro:SetText(introText)
+
+    local introLines = math.max(1, math.ceil(#introText / CHARS_PER_LINE))
+    local yOffset = -(introLines * LINE_HEIGHT) - 18
+
+    local latest = CHANGELOG[1]
+    if latest then
+        local versionHeader = content:CreateFontString(nil, "OVERLAY")
+        versionHeader:SetFont("Fonts\\FRIZQT__.ttf", 14, "OUTLINE")
+        versionHeader:SetTextColor(1, 0.82, 0)
+        versionHeader:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+        versionHeader:SetText("New in "..latest.version)
+        yOffset = yOffset - 20 - 8
+
+        for _, line in ipairs(latest.highlights) do
+            local bullet = content:CreateFontString(nil, "ARTWORK")
+            bullet:SetFont("Fonts\\FRIZQT__.ttf", 12, "")
+            bullet:SetPoint("TOPLEFT", content, "TOPLEFT", 4, yOffset)
+            bullet:SetWidth(332)
+            bullet:SetJustifyH("LEFT")
+            bullet:SetWordWrap(true)
+            bullet:SetText("- "..line)
+            local estimatedLines = math.max(1, math.ceil(#line / CHARS_PER_LINE))
+            yOffset = yOffset - (estimatedLines * LINE_HEIGHT) - 8
+        end
+    end
+
+    -- Earlier versions, compact - one line each, just enough to jog the
+    -- memory without turning this into a full changelog archive
+    if #CHANGELOG > 1 then
+        yOffset = yOffset - 6
+        local earlierHeader = content:CreateFontString(nil, "OVERLAY")
+        earlierHeader:SetFont("Fonts\\FRIZQT__.ttf", 12, "OUTLINE")
+        earlierHeader:SetTextColor(0.6, 0.6, 0.6)
+        earlierHeader:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+        earlierHeader:SetText("Earlier updates")
+        yOffset = yOffset - 18
+
+        for i = 2, #CHANGELOG do
+            local entry = CHANGELOG[i]
+            local summary = entry.summary or (entry.highlights and entry.highlights[1]) or ""
+            local line = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+            line:SetPoint("TOPLEFT", content, "TOPLEFT", 4, yOffset)
+            line:SetWidth(332)
+            line:SetJustifyH("LEFT")
+            line:SetWordWrap(true)
+            line:SetText(entry.version..": "..summary)
+            local estimatedLines = math.max(1, math.ceil((#entry.version + 2 + #summary) / CHARS_PER_LINE))
+            yOffset = yOffset - (estimatedLines * LINE_HEIGHT) - 6
+        end
+    end
+
+    content:SetHeight(math.abs(yOffset) + 10)
+
+    local closeBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    closeBtn:SetSize(110, 24)
+    closeBtn:SetPoint("BOTTOM", panel, "BOTTOM", 0, 16)
+    closeBtn:SetText("Let's go!")
+    closeBtn:SetScript("OnClick", function() panel:Hide() end)
+
+    -- Mark this version "seen" on OnHide rather than only in the button's
+    -- OnClick - this popup is registered with UISpecialFrames so pressing
+    -- Escape also closes it, and that path bypasses OnClick entirely. If
+    -- marking only happened on the button, an Escape-dismiss would leave
+    -- lastSeenVersion unset and the popup would show again next login -
+    -- exactly the repeat-every-login annoyance this is meant to avoid.
+    -- OnHide fires no matter how the window gets closed, so this is the
+    -- one place that actually guarantees "shows once per version."
+    panel:SetScript("OnHide", function()
+        ItemWatchDB.lastSeenVersion = GetAddonVersion() or ItemWatchDB.lastSeenVersion
+    end)
+
+    tinsert(UISpecialFrames, "ItemWatchWhatsNew")
+
+    return panel
+end
+
 -- Event handling
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
@@ -1820,6 +2161,12 @@ eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED") -- entering combat
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")  -- leaving combat
 eventFrame:RegisterEvent("PET_BATTLE_OPENING_START")
 eventFrame:RegisterEvent("PET_BATTLE_CLOSE")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD") -- see hasCheckedWhatsNew below
+
+-- PLAYER_ENTERING_WORLD fires on every loading screen (zone changes,
+-- instance transitions, not just login), so this guards the What's New
+-- check to only ever run once per session, the first time it fires.
+local hasCheckedWhatsNew = false
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == "Blizzard_Professions" then
@@ -1830,6 +2177,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         quickAddFrame = CreateQuickAddPopup()
         itemEditFrame = CreateItemEditPopup()
         shoppingListFrame = CreateShoppingListWindow()
+        whatsNewFrame = CreateWhatsNewPopup()
         for _, entry in ipairs(ItemWatchDB.items) do
             frames[entry.id] = CreateItemFrame(entry)
         end
@@ -1870,6 +2218,22 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "PET_BATTLE_CLOSE" then
         inPetBattle = false
         UpdateBoxVisibility()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Deliberately NOT done in ADDON_LOADED: Blizzard runs its own
+        -- "close any open special windows" pass as part of the normal
+        -- load sequence, which happens AFTER ADDON_LOADED but BEFORE the
+        -- player actually sees the world. A popup shown during
+        -- ADDON_LOADED gets silently closed by that pass almost
+        -- immediately - no error, just gone before anyone could see it.
+        -- PLAYER_ENTERING_WORLD fires after that cleanup, so this is the
+        -- correct place for a "show once per version" popup like this.
+        if not hasCheckedWhatsNew then
+            hasCheckedWhatsNew = true
+            local currentVersion = GetAddonVersion()
+            if currentVersion and ItemWatchDB.lastSeenVersion ~= currentVersion and whatsNewFrame then
+                whatsNewFrame:Show()
+            end
+        end
     end
 end)
 
@@ -2096,6 +2460,12 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         end
     elseif cmd == "options" or cmd == "config" then
         OpenItemWatchOptions()
+    elseif cmd == "whatsnew" then
+        local currentVersion = GetAddonVersion()
+        print("|cff00ffffItemWatch debug:|r currentVersion=["..tostring(currentVersion).."] lastSeenVersion=["..tostring(ItemWatchDB.lastSeenVersion).."]")
+        if whatsNewFrame then
+            whatsNewFrame:Show()
+        end
     elseif cmd == "testsound" then
         PlayGoalSound()
         print("|cff00ff00ItemWatch:|r played the goal sound (if you didn't hear it, check your Sound Effects volume in Options).")
@@ -2120,5 +2490,6 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         print("/iw sound <itemID> on|off - toggle the goal-reached sound for that item")
         print("/iw testsound - play the goal sound right now, to test it")
         print("/iw options - open the settings panel to pick your alert sound")
+        print("/iw whatsnew - show the What's New popup again")
     end
 end
