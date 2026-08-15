@@ -157,6 +157,15 @@ and **About**.
 Found a bug or have a feature idea? Open an issue — feedback and
 suggestions welcome.
 
+---
+
+I only update on Curseforge, Github, Wago, and WoWInterface. 
+Curseforge and Github are preferred, however I don't update anywhere
+besides these aforementioned sites. 
+
+---
+
+
 ## License
 
 MIT — see LICENSE for details.
