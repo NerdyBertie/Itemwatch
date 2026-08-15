@@ -167,7 +167,7 @@ If you find ItemWatch useful, consider supporting me on
 appreciated! You can also find me on
 [Twitch](https://www.twitch.tv/nerdybertie) or
 [YouTube](https://www.youtube.com/@nerdybertie) - NerdyBertie
-<img width="200" height="200" alt="ItemWatch_Wago_optimized" src="https://github.com/user-attachments/assets/070b4ebc-977f-4506-b599-6cc9f5563da9" />
+
 <img width="1055" height="607" alt="itemwatchmainnew" src="https://github.com/user-attachments/assets/95d1f0b5-77d5-49d9-b297-0351a45647b8" />
 <img width="1161" height="700" alt="itemwatchnewopts" src="https://github.com/user-attachments/assets/2cb6bfef-b999-49c6-ba53-91c54351827b" />
 <img width="530" height="350" alt="iwaddmenu" src="https://github.com/user-attachments/assets/3f6a5d5d-3e05-493f-a157-9c02a9032ead" />
