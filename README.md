@@ -1,4 +1,4 @@
-<img width="1254" height="1254" alt="ItemWatch_Wago_optimized" src="https://github.com/user-attachments/assets/3e1312c6-2d85-4927-9d93-1b7ab4f637f2" />
+<img width="200" height="200" alt="ItemWatch_Wago_optimized" src="https://github.com/user-attachments/assets/3e1312c6-2d85-4927-9d93-1b7ab4f637f2" />
 ItemWatch
 =========
 
