@@ -1,3 +1,4 @@
+<img width="1254" height="1254" alt="ItemWatch_Wago_optimized" src="https://github.com/user-attachments/assets/3e1312c6-2d85-4927-9d93-1b7ab4f637f2" />
 ItemWatch
 =========
 
@@ -166,3 +167,11 @@ If you find ItemWatch useful, consider supporting me on
 appreciated! You can also find me on
 [Twitch](https://www.twitch.tv/nerdybertie) or
 [YouTube](https://www.youtube.com/@nerdybertie) - NerdyBertie
+<img width="1254" height="1254" alt="ItemWatch_Wago_optimized" src="https://github.com/user-attachments/assets/070b4ebc-977f-4506-b599-6cc9f5563da9" />
+<img width="1055" height="607" alt="itemwatchmainnew" src="https://github.com/user-attachments/assets/95d1f0b5-77d5-49d9-b297-0351a45647b8" />
+<img width="1161" height="700" alt="itemwatchnewopts" src="https://github.com/user-attachments/assets/2cb6bfef-b999-49c6-ba53-91c54351827b" />
+<img width="530" height="350" alt="iwaddmenu" src="https://github.com/user-attachments/assets/3f6a5d5d-3e05-493f-a157-9c02a9032ead" />
+<img width="668" height="579" alt="thisItemwatchnewfeatureshopping" src="https://github.com/user-attachments/assets/b4883c68-c959-4c96-ad3a-d2c928c70676" />
+<img width="1003" height="775" alt="newsounds2" src="https://github.com/user-attachments/assets/8f3daf1a-28c9-4d5e-9d32-cfd051182c03" />
+<img width="383" height="304" alt="IWcommands" src="https://github.com/user-attachments/assets/837dc0c2-468b-4e16-a516-1fe7fcb97c74" />
+<img width="879" height="523" alt="itwwhatsnew" src="https://github.com/user-attachments/assets/27327253-41ef-4bed-bd96-e73339bfad8f" />
