@@ -2,8 +2,11 @@
 ## Title: ItemWatch
 ## Notes: Movable icon + count displays for tracking specific items in your bags
 ## Author: NerdyBertie
-## Version: 2.2.2
+## Version: @project-version@
 ## SavedVariablesPerCharacter: ItemWatchDB
+## X-Curse-Project-ID: 1624699
+## X-Wago-ID: vNAgDjKo
+## X-WoWI-ID: 27180
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
