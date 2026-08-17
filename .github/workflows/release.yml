@@ -25,5 +25,5 @@ jobs:
       - name: Announce release on Discord
         run: |
           curl -H "Content-Type: application/json" \
-            -d "{\"content\": \"🔧 **ItemWatch ${{ github.ref_name }}** just shipped! Grab it from CurseForge, WoWInterface, or Wago.\"}" \
+            -d "{\"content\": \"🔧 **ItemWatch ${{ github.ref_name }}** just shipped! Grab it from CurseForge, WoWInterface, Wago, or WoWUp.\"}" \
             "${{ secrets.DISCORD_WEBHOOK }}"
