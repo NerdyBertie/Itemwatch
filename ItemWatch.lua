@@ -1304,7 +1304,14 @@ function RefreshShoppingList()
     -- options-panel doc pages - GetStringHeight() right after SetText can
     -- return a stale single-line value for wrapped text, so estimating
     -- from character count is the more reliable measure here.
-    local ROW_CHARS_PER_LINE = 26
+    -- Bumped from 26 to 31 after real-world evidence: a 27-char name
+    -- ("Tranquility Bloom (162/240)") rendered as one line in-game but
+    -- the old threshold guessed two, leaving a phantom gap before the
+    -- Need line. This is still an estimate, not pixel-perfect measurement
+    -- (window can be resized to different widths), so some fuzziness at
+    -- the edges is expected either direction - erring toward "slightly
+    -- too much room" is the safer failure mode over text overlapping.
+    local ROW_CHARS_PER_LINE = 31
     local ROW_LINE_HEIGHT = 13
     local ROW_MIN_HEIGHT = 20
     local ROW_GAP = 3
@@ -1322,6 +1329,7 @@ function RefreshShoppingList()
         local have = C_Item.GetItemCount(reagent.itemID, true, false, true, true)
         local satisfied = have >= reagent.needed
         if not satisfied then allSatisfied = false end
+        local shortfall = math.max(0, reagent.needed - have)
 
         local text = (reagent.name or ("item #"..reagent.itemID)).." ("..have.."/"..reagent.needed..")"
         if reagent.isBoP then
@@ -1339,6 +1347,15 @@ function RefreshShoppingList()
         -- height, so the next row doesn't overlap this one's text.
         local estimatedLines = math.max(1, math.ceil(#visibleText / ROW_CHARS_PER_LINE))
         local rowHeight = math.max(ROW_MIN_HEIGHT, estimatedLines * ROW_LINE_HEIGHT + 6)
+
+        -- "Need: X" only shows up when there's an actual shortfall - an
+        -- already-satisfied reagent is already green and self-evident, so
+        -- a "Need: 0" line under it would just be noise. Add a bit of
+        -- extra row height to fit the second line when it's shown.
+        local NEED_LINE_HEIGHT = 13
+        if shortfall > 0 then
+            rowHeight = rowHeight + NEED_LINE_HEIGHT + 2
+        end
 
         local row = CreateFrame("Button", nil, shoppingListFrame.content)
         row:SetSize(rowWidth, rowHeight)
@@ -1358,6 +1375,14 @@ function RefreshShoppingList()
         label:SetWordWrap(true)
         label:SetText(text)
         label:SetTextColor(satisfied and 0.2 or 1, satisfied and 1 or 1, satisfied and 0.2 or 1)
+
+        if shortfall > 0 then
+            local needLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            needLabel:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 14, -(estimatedLines - 1) * ROW_LINE_HEIGHT - 2)
+            needLabel:SetJustifyH("LEFT")
+            needLabel:SetText("Need: "..shortfall)
+            needLabel:SetTextColor(0, 1, 1)
+        end
 
         -- Shift-click to link/search, same as the main Item Box's icons
         local itemID = reagent.itemID
@@ -1898,7 +1923,7 @@ local function BuildOptionsPanel()
                 { "Starting a Shopping List",
                   "Open a recipe on the Recipes tab of any profession and click \"Add to Shopping List.\" ItemWatch reads that recipe's full reagent list and builds the list for you automatically - no manual entry needed." },
                 { "Required reagents",
-                  "Each shows a live have/needed count and turns green once you've got enough. These count everything you own: bags, bank, reagent bank, AND warband bank - deliberately different from the main Item Box, which only ever counts bags." },
+                  "Each shows a live have/needed count and turns green once you've got enough. If you're still short, a \"Need: X\" line shows the exact amount left to buy - no mental math required. These count everything you own: bags, bank, AND warband bank - deliberately different from the main Item Box, which only ever counts bags." },
                 { "Optional reagents",
                   "Missives, embellishments, and similar finishing reagents show as a plain reminder instead of an auto-added goal - which one you want is a build-specific choice ItemWatch shouldn't make for you." },
                 { "\"[vendor/earned only]\" tag",
@@ -1974,9 +1999,14 @@ local function BuildOptionsPanel()
             aboutLinks:SetPoint("TOPLEFT", aboutBody, "BOTTOMLEFT", -4, -20)
             aboutLinks:SetText("Links")
 
-            local twitchBtn = AddCopyableLink(aboutContent, aboutLinks, "Twitch", "https://www.twitch.tv/nerdybertie")
+            local aboutLinksTip = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+            aboutLinksTip:SetPoint("TOPLEFT", aboutLinks, "BOTTOMLEFT", 4, -4)
+            aboutLinksTip:SetText("Tip: click the button to select the link, then Ctrl+C to copy it.")
+
+            local twitchBtn = AddCopyableLink(aboutContent, aboutLinksTip, "Twitch", "https://www.twitch.tv/nerdybertie")
             local youtubeBtn = AddCopyableLink(aboutContent, twitchBtn, "YouTube", "https://www.youtube.com/@nerdybertie")
             local githubBtn = AddCopyableLink(aboutContent, youtubeBtn, "GitHub", "https://github.com/NerdyBertie/Itemwatch")
+            local discordBtn = AddCopyableLink(aboutContent, githubBtn, "Discord", "https://discord.gg/bXbMR6rzcF")
 
             Settings.RegisterCanvasLayoutSubcategory(category, aboutPanel, aboutPanel.name)
         end
@@ -2000,6 +2030,12 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.2.3",
+        highlights = {
+            "Shopping List reagents now show \"Need: X\" - the exact amount still short of your goal, so you don't have to do the subtraction yourself while standing at the Auction House. Only shows up for reagents you're actually short on - already-satisfied ones stay clean.",
+        },
+    },
     {
         version = "2.2.2",
         highlights = {
@@ -2260,6 +2296,47 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         print("|cff00ff00ItemWatch:|r frames unlocked - drag them to move.")
     elseif cmd == "addrecipe" then
         AddRecipeToShoppingList()
+    elseif cmd == "hoverdump" then
+        -- Complements /fstack: that shows frame NAMES under the cursor,
+        -- this reads frame DATA by direct reference instead - works even
+        -- on anonymous frames (no global name) that /fstack can't help
+        -- you reference by typing into /dump. Hover the target UI element
+        -- with the mouse, then run this command WITHOUT moving the mouse
+        -- (typing in chat doesn't move the cursor, so this works fine).
+        local frame
+        if GetMouseFoci then
+            local foci = GetMouseFoci() -- newer API, returns stacked frames under cursor
+            frame = foci and foci[1]
+        elseif GetMouseFocus then
+            frame = GetMouseFocus() -- older API fallback
+        end
+
+        if not frame or frame == WorldFrame then
+            print("|cffff8800ItemWatch:|r no frame found under the cursor - hover over the target UI element first, then run /iw hoverdump without moving the mouse.")
+            return
+        end
+
+        print("|cff00ffffItemWatch hoverdump:|r walking up from whatever's under the cursor...")
+        local current = frame
+        for depth = 0, 6 do
+            if not current then break end
+            local okName, fname = pcall(function() return current.GetName and current:GetName() end)
+            local label = (okName and fname) and fname or "(anonymous frame)"
+            print("|cff888888  depth "..depth..":|r "..label)
+
+            local okSchem, schem = pcall(function() return current.recipeSchematic end)
+            if okSchem and type(schem) == "table" and schem.recipeID then
+                print("|cff00ff00    FOUND .recipeSchematic! recipeID = "..tostring(schem.recipeID).."|r")
+            end
+            local okID, directID = pcall(function() return current.recipeID end)
+            if okID and type(directID) == "number" then
+                print("|cff00ff00    FOUND .recipeID directly = "..tostring(directID).."|r")
+            end
+
+            local okParent, parent = pcall(function() return current.GetParent and current:GetParent() end)
+            current = okParent and parent or nil
+        end
+        print("|cff00ffffItemWatch hoverdump:|r done.")
     elseif cmd == "craftdebug" then
         -- Diagnostic tool: open a recipe in the Professions window first,
         -- then run this. Tries a few known ways to find the currently
