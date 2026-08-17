@@ -1,5 +1,3 @@
-<img width="200" height="200" alt="ItemWatch_Wago_optimized" src="https://github.com/user-attachments/assets/3e1312c6-2d85-4927-9d93-1b7ab4f637f2" />
-
 ItemWatch
 =========
 
@@ -22,12 +20,14 @@ eye on an exact item count without repeatedly opening your bags.
   than one? Set the quantity right in the window ("Crafting: __ x this
   recipe") and every reagent's needed amount updates live - no need to
   re-add the recipe. Required reagents track live progress (counting
-  bank, reagent bank, and warband bank, not just bags), optional/
-  finishing reagents show as a plain reminder, and reagents you can't
-  buy on the Auction House are flagged "[vendor/earned only]" instead of
-  silently vanishing. The window is movable, resizable, lockable,
-  persists across logout/reload, and asks before replacing an already-
-  open list so an accidental click won't wipe your progress.
+  bank and warband bank, not just bags) and show a "Need: X" line for
+  anything you're still short on, so there's no mental math while
+  you're standing at the Auction House. Optional/finishing reagents
+  show as a plain reminder, and reagents you can't buy on the Auction
+  House are flagged "[vendor/earned only]" instead of silently
+  vanishing. The window is movable, resizable, lockable, persists
+  across logout/reload, and asks before replacing an already-open list
+  so an accidental click won't wipe your progress.
 - **Quick-Add popup** — track items you don't have yet by pasting a
   Wowhead link, typing an item ID, or shift-clicking an item straight
   into the field. Set a goal and sound in one step.
@@ -157,15 +157,6 @@ and **About**.
 Found a bug or have a feature idea? Open an issue — feedback and
 suggestions welcome.
 
----
-
-I only update on Curseforge, Github, Wago, and WoWInterface. 
-Curseforge and Github are preferred, however I don't update anywhere
-besides these aforementioned sites. 
-
----
-
-
 ## License
 
 MIT — see LICENSE for details.
@@ -175,13 +166,6 @@ MIT — see LICENSE for details.
 If you find ItemWatch useful, consider supporting me on
 [Ko-fi](https://ko-fi.com/nerdybertie) — totally optional, but always
 appreciated! You can also find me on
-[Twitch](https://www.twitch.tv/nerdybertie) or
-[YouTube](https://www.youtube.com/@nerdybertie) - NerdyBertie
-
-<img width="1055" height="607" alt="itemwatchmainnew" src="https://github.com/user-attachments/assets/95d1f0b5-77d5-49d9-b297-0351a45647b8" />
-<img width="1161" height="700" alt="itemwatchnewopts" src="https://github.com/user-attachments/assets/d51bb6af-dad9-4952-af1f-d91701ce453d" />
-<img width="530" height="350" alt="iwaddmenu" src="https://github.com/user-attachments/assets/3f6a5d5d-3e05-493f-a157-9c02a9032ead" />
-<img width="668" height="579" alt="thisItemwatchnewfeatureshopping" src="https://github.com/user-attachments/assets/b4883c68-c959-4c96-ad3a-d2c928c70676" />
-<img width="1003" height="775" alt="newsounds2" src="https://github.com/user-attachments/assets/8f3daf1a-28c9-4d5e-9d32-cfd051182c03" />
-<img width="383" height="304" alt="IWcommands" src="https://github.com/user-attachments/assets/837dc0c2-468b-4e16-a516-1fe7fcb97c74" />
-<img width="879" height="523" alt="itwwhatsnew" src="https://github.com/user-attachments/assets/27327253-41ef-4bed-bd96-e73339bfad8f" />
+[Twitch](https://www.twitch.tv/nerdybertie),
+[YouTube](https://www.youtube.com/@nerdybertie), or
+[Discord](https://discord.gg/bXbMR6rzcF) - NerdyBertie
