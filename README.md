@@ -103,15 +103,15 @@ eye on an exact item count without repeatedly opening your bags.
 
 | Command | Description |
 |---|---|
-| `/iw add <itemID>` | Start tracking an item |
-| `/iw remove <itemID>` | Stop tracking an item |
+| `/iw add [itemID]` | Start tracking an item |
+| `/iw remove [itemID]` | Stop tracking an item |
 | `/iw list` | List everything currently tracked |
 | `/iw clear` | Remove all tracked items (asks to confirm) |
 | `/iw lock` | Lock the box in place |
 | `/iw unlock` | Unlock the box so you can move/resize it |
-| `/iw goal <itemID> <amount>` | Set a target amount for an item |
-| `/iw goal <itemID> clear` | Remove the goal for an item |
-| `/iw sound <itemID> on\|off` | Toggle the goal-reached sound for an item |
+| `/iw goal [itemID] [amount]` | Set a target amount for an item |
+| `/iw goal [itemID] clear` | Remove the goal for an item |
+| `/iw sound [itemID] on\|off` | Toggle the goal-reached sound for an item |
 | `/iw testsound` | Preview the default goal sound |
 | `/iw addrecipe` | Add the currently-open recipe to the Shopping List |
 | `/iw whatsnew` | Show the What's New popup again |
@@ -149,7 +149,7 @@ and **About**.
   one feature).
 - The Ctrl+Shift+Click add-from-bags shortcut only works with Blizzard's
   default bag UI. If you use a bag-replacement addon (Baganator,
-  ArkInventory, Bagnon, etc.), use `/iw add <itemID>` or the Quick-Add
+  ArkInventory, Bagnon, etc.), use `/iw add [itemID]` or the Quick-Add
   popup instead.
 
 ## Contributing / Issues
