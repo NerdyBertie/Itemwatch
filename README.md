@@ -35,11 +35,9 @@ eye on an exact item count without repeatedly opening your bags.
   goal or pick its own custom "goal reached" sound (or mute it).
 - **Per-item ding sounds** — no more one generic sound for everything;
   give each tracked item its own, so you know what just hit its goal
-  without looking. Includes plenty of fun presets alongside the standard
-  ones - Commander Ulthok, Cat Meow, Aquatic Form Burp, Illidan, a Brann
-  Bronzebeard easter egg section, and grouped "Horde Legends" (Thrall,
-  Sylvanas, Baine, Monte Gazlowe) and "Alliance Champions" (Genn
-  Greymane, Tyrande, Magni, Gelbin) sections.
+  without looking. A growing collection of fun/thematic presets alongside
+  the practical ones - see the Sound Presets section below for the full
+  list.
 - **Shift-click to link, Ctrl-click to preview** — tracked icons behave
   like real item icons for chat links and equippable-gear previews.
 - **Character-specific tracking** — each character keeps its own list.
@@ -132,6 +130,30 @@ Information** (how everything works), **Shopping List** (how the
 recipe-based shopping list works), **Practical Uses** (real workflows
 like building an Auction House list from the main box), **Contact/Support**,
 and **About**.
+
+## Sound Presets
+
+Every tracked item can play its own sound when its goal is reached - mix
+and match as many as you like, or leave one as your global default.
+Alongside the practical picks (Ready Check, Achievement Ding, Coin Sound),
+there's a growing collection of fun/thematic ones:
+
+- **Orc Peon** - "Work Complete!" (the default) and "Me not that kind of orc!"
+- **Commander Ulthok** - startling, you've been warned
+- **Illidan** - "You are not prepared!"
+- **Brann Bronzebeard** - "Here we go!" and "Time to go all out!"
+- **Horde Legends** - Thrall ("Lok'tar!"), Sylvanas ("So it is done"),
+  Baine Bloodhoof ("For the Horde, always"), Monte Gazlowe ("Business is
+  Boomin'!")
+- **Alliance Champions** - Genn Greymane ("So many... dead..." - a bit
+  morbid, fun for skinners!), Tyrande Whisperwind ("Ishnu-ala"), Magni
+  Bronzebeard ("Always more work to be done"), Gelbin Mekkatorque
+  ("There's always time to tinker")
+
+Prefer something not on the list? There's also a **Custom FileDataID**
+option, so you can use any sound file ID you can find (try
+[wago.tools/files](https://wago.tools/files) or search
+[wowhead.com/sounds](https://www.wowhead.com/sounds)).
 
 ## Notes
 
