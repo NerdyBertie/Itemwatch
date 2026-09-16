@@ -1,5 +1,5 @@
-<img width="254" height="254" alt="ItemWatch_Wago_optimized" src="https://github.com/user-attachments/assets/16987d0f-24e3-4b37-9d72-f392d21670c2" />
-
+<p align="center"><img width="254" height="254" alt="ItemWatch_Wago_optimized" src="https://github.com/user-attachments/assets/16987d0f-24e3-4b37-9d72-f392d21670c2" />
+</p>
 ItemWatch
 =========
 
