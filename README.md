@@ -192,5 +192,7 @@ If you find ItemWatch useful, consider supporting me on
 [Ko-fi](https://ko-fi.com/nerdybertie) — totally optional, but always
 appreciated! You can also find me on
 [Twitch](https://www.twitch.tv/nerdybertie),
+[Tiktok](https://www.tiktok.com/@nerdybertie),
 [YouTube](https://www.youtube.com/@nerdybertie), or
 [Discord](https://discord.gg/bXbMR6rzcF) - NerdyBertie
+
