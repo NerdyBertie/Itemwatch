@@ -542,6 +542,21 @@ local function SetGoal(itemID, amount)
     print("|cff00ff00ItemWatch:|r goal for item "..itemID.." set to "..amount)
 end
 
+-- Public function for other NerdyBertie addons: adds `amount` on top of an
+-- item's existing goal (starting tracking first if it isn't tracked yet).
+-- Must be a true global, not local, so other addons can call it by name.
+-- Returns true on success, false if the item couldn't be added.
+function ItemWatch_AddToGoal(itemID, amount)
+    itemID = tonumber(itemID)
+    amount = tonumber(amount) or 1
+    if not itemID then return false end
+    if not FindEntry(itemID) then AddItem(itemID) end
+    local entry = FindEntry(itemID)
+    if not entry then return false end
+    SetGoal(itemID, (entry.goal or 0) + amount)
+    return true
+end
+
 local function ClearGoal(itemID)
     local entry = FindEntry(itemID)
     if not entry then
@@ -654,10 +669,9 @@ end
 -- Creates the minimap button via LibDataBroker + LibDBIcon (standard shared
 -- libraries most WoW addons use for this). Left-click toggles the Item Box,
 -- right-click opens settings. Because it's a proper LibDBIcon object, it
--- automatically gets picked up by any minimap-button "tray" addon someone
--- already has installed (ElvUI, Dominos, Bartender4, MBB, SexyMap, etc.) -
--- no extra work needed for that compatibility, it comes from following the
--- shared convention.
+-- automatically gets picked up by any minimap-button "tray" or manager
+-- addon someone already has installed - no extra work needed for that
+-- compatibility, it comes from following the shared convention.
 local function CreateMinimapButton()
     local LDB = LibStub and LibStub("LibDataBroker-1.1", true)
     local DBIcon = LibStub and LibStub("LibDBIcon-1.0", true)
@@ -1581,12 +1595,11 @@ end
 
 local recipeAddButton = nil
 
--- "Add to ItemWatch" button on the Recipes tab's schematic form. Reuses
+-- "Add to Shopping List" button on the Recipes tab's schematic form. Reuses
 -- AddRecipeToShoppingList() - the same function /iw addrecipe already
 -- calls - so the button and the slash command can never drift out of
 -- sync with each other. Injecting a button into this frame is already
--- proven safe: Blizzard's own "Track Recipe" checkbox lives here, and
--- Auctionator injects into the sibling Crafting Order frame the same way.
+-- proven safe: Blizzard's own "Track Recipe" checkbox lives here.
 local function CreateRecipeAddButton()
     if recipeAddButton then return end
     if not (ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm) then
@@ -1753,6 +1766,28 @@ local function BuildSectionedSubpage(name, pageTitle, sections)
     end
 
     return panel
+end
+
+-- Shared "NerdyBertie" heading in Options > AddOns. Every NerdyBertie addon
+-- carries this same function: whichever one loads first builds the heading
+-- and stores it in the NerdyBertie_SettingsCategory global, and every other
+-- one finds it there and files its own settings underneath. The brand page
+-- is text only, so it looks identical no matter which addon built it.
+local function GetBrandCategory()
+    if NerdyBertie_SettingsCategory then return NerdyBertie_SettingsCategory end
+    local panel = CreateFrame("Frame")
+    local heading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    heading:SetPoint("TOPLEFT", 16, -16)
+    heading:SetText("NerdyBertie")
+    local blurb = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    blurb:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -12)
+    blurb:SetWidth(560)
+    blurb:SetJustifyH("LEFT")
+    blurb:SetText("Addons from the NerdyBertie workshop. Pick one from the list on the left to see its settings.")
+    local category = Settings.RegisterCanvasLayoutCategory(panel, "NerdyBertie")
+    Settings.RegisterAddOnCategory(category)
+    NerdyBertie_SettingsCategory = category
+    return category
 end
 
 local function BuildOptionsPanel()
@@ -1939,8 +1974,15 @@ local function BuildOptionsPanel()
     end)
 
     if Settings and Settings.RegisterCanvasLayoutCategory then
-        local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-        Settings.RegisterAddOnCategory(category)
+        local category
+        if Settings.RegisterCanvasLayoutSubcategory then
+            -- Filed under the shared NerdyBertie heading; the doc pages
+            -- below register under this one, so they nest a level deeper.
+            category = Settings.RegisterCanvasLayoutSubcategory(GetBrandCategory(), panel, panel.name)
+        else
+            category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+            Settings.RegisterAddOnCategory(category)
+        end
         optionsCategory = category
 
         if Settings.RegisterCanvasLayoutSubcategory then
