@@ -692,6 +692,38 @@ local function CreateMinimapButton()
     DBIcon:Register("ItemWatch", dataObject, ItemWatchDB.minimapIcon)
 end
 
+-- Addon compartment entry (the dropdown button next to the minimap,
+-- useful if someone's hidden the minimap button itself) - same behavior
+-- as the minimap button: left-click toggles the box, right-click opens
+-- settings. These have to be true globals, not local functions - the
+-- .toc's AddonCompartmentFunc/OnEnter/OnLeave fields reference them by
+-- name string, which only resolves against the global namespace.
+function ItemWatch_OnAddonCompartmentClick(addonName, buttonName)
+    if buttonName == "LeftButton" then
+        if itemBox then
+            if itemBox:IsShown() then
+                itemBox:Hide()
+            else
+                itemBox:Show()
+            end
+        end
+    elseif buttonName == "RightButton" then
+        OpenItemWatchOptions()
+    end
+end
+
+function ItemWatch_OnAddonCompartmentEnter(addonName, menuButtonFrame)
+    GameTooltip:SetOwner(menuButtonFrame, "ANCHOR_LEFT")
+    GameTooltip:AddLine("ItemWatch")
+    GameTooltip:AddLine("Left-click: show/hide the box", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Right-click: open settings", 0.8, 0.8, 0.8)
+    GameTooltip:Show()
+end
+
+function ItemWatch_OnAddonCompartmentLeave(addonName, menuButtonFrame)
+    GameTooltip:Hide()
+end
+
 local quickAddFrame = nil
 
 -- Pulls a plain item ID out of either a raw number, a Wowhead URL/link, or
@@ -1571,6 +1603,8 @@ local function CreateRecipeAddButton()
     -- Blizzard's own Create button or the reagent list. Nudge the offsets
     -- below once you've seen it in-game.
     btn:SetPoint("BOTTOMLEFT", form, "BOTTOMLEFT", 10, 40)
+    btn:SetAlpha(0)
+    btn:EnableMouse(false)
 
     btn:SetScript("OnClick", function()
         AddRecipeToShoppingList()
@@ -1581,6 +1615,50 @@ local function CreateRecipeAddButton()
         GameTooltip:Show()
     end)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Hides the button whenever the selected recipe has no reagent slots
+    -- at all (required or optional) - e.g. Death Knight Runeforging, which
+    -- shares this same crafting-style window but genuinely has nothing to
+    -- shop for. Throttled (checks a few times a second, not every frame)
+    -- and only re-reads the schematic when the recipeID actually changes,
+    -- so it's cheap to leave running. This also quietly future-proofs
+    -- against any other reagent-less recipe type Blizzard adds later,
+    -- without needing to specifically identify Runeforging by name or ID.
+    btn:SetScript("OnUpdate", function(self, elapsed)
+        self.updateTimer = (self.updateTimer or 0) + elapsed
+        if self.updateTimer < 0.3 then return end
+        self.updateTimer = 0
+
+        local schematicForm = ProfessionsFrame and ProfessionsFrame.CraftingPage
+            and ProfessionsFrame.CraftingPage.SchematicForm
+        local recipeID = schematicForm and schematicForm.recipeSchematic
+            and schematicForm.recipeSchematic.recipeID
+
+        if recipeID == self.lastCheckedRecipeID then return end
+        self.lastCheckedRecipeID = recipeID
+
+        local hasReagentSlots = false
+        if recipeID then
+            local ok, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+            hasReagentSlots = ok and schematic and schematic.reagentSlotSchematics
+                and #schematic.reagentSlotSchematics > 0
+        end
+
+        -- Uses alpha + mouse toggling rather than Show()/Hide() - a
+        -- hidden frame's OnUpdate script stops firing entirely in WoW,
+        -- which would freeze this check the moment it hid itself once
+        -- and never let it reappear for a later recipe that does have
+        -- reagents. This achieves the same visible effect (invisible,
+        -- unclickable, no tooltip) while staying "shown" internally so
+        -- it keeps checking.
+        if hasReagentSlots then
+            self:SetAlpha(1)
+            self:EnableMouse(true)
+        else
+            self:SetAlpha(0)
+            self:EnableMouse(false)
+        end
+    end)
 
     recipeAddButton = btn
 end
@@ -2026,10 +2104,39 @@ local function GetAddonVersion()
     return nil
 end
 
+-- Cycles through a small palette, one color per character, for a fun
+-- rainbow effect on the What's New chat announcement. Spaces are left
+-- uncolored (and don't advance the cycle) so words don't visually shift
+-- color partway through in a jarring way at the color boundary.
+local RAINBOW_COLORS = {
+    "ffff5555", "ffffaa55", "ffffff55", "ff55ff55", "ff55ffff", "ff5555ff", "ffff55ff",
+}
+local function RainbowText(text)
+    local pieces = {}
+    local colorIndex = 1
+    for i = 1, #text do
+        local char = text:sub(i, i)
+        if char == " " then
+            pieces[#pieces + 1] = " "
+        else
+            pieces[#pieces + 1] = "|c"..RAINBOW_COLORS[colorIndex]..char.."|r"
+            colorIndex = (colorIndex % #RAINBOW_COLORS) + 1
+        end
+    end
+    return table.concat(pieces)
+end
+
 -- Newest release first. Add a new entry here each time you ship - the
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.2.4",
+        highlights = {
+            "Update notices now show up as a clickable chat link instead of a pop-up window - less intrusive, and click it whenever you've got a moment to read what's new.",
+            "The \"Add to Shopping List\" button no longer shows up on Death Knight Runeforging (or any other reagent-less crafting window) - nothing to shop for there.",
+        },
+    },
     {
         version = "2.2.3",
         highlights = {
@@ -2188,6 +2295,17 @@ local function CreateWhatsNewPopup()
     return panel
 end
 
+-- Clicking the chat-link update notice (see PLAYER_ENTERING_WORLD below)
+-- opens this same window. Hooking SetItemRef is the standard way to make
+-- a custom hyperlink type clickable in chat - the same underlying
+-- mechanism item links use, just with our own link type instead of
+-- "item:".
+hooksecurefunc("SetItemRef", function(link)
+    if link == "itemwatch_whatsnew" and whatsNewFrame then
+        whatsNewFrame:Show()
+    end
+end)
+
 -- Event handling
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
@@ -2262,12 +2380,24 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- ADDON_LOADED gets silently closed by that pass almost
         -- immediately - no error, just gone before anyone could see it.
         -- PLAYER_ENTERING_WORLD fires after that cleanup, so this is the
-        -- correct place for a "show once per version" popup like this.
+        -- correct place for a "show once per version" notice like this.
+        --
+        -- Prints a clickable chat link instead of auto-showing the popup -
+        -- less intrusive (nothing yanks focus or covers the screen while
+        -- loading in), and it sidesteps the whole "frame shown too early
+        -- gets silently closed" class of bug entirely, since nothing's
+        -- actually shown unless the player clicks. Marked "seen" the
+        -- moment it prints, not only if clicked, so it never re-prints
+        -- every login for someone who just isn't interested in reading
+        -- patch notes - /iw whatsnew is always there if they change
+        -- their mind later.
         if not hasCheckedWhatsNew then
             hasCheckedWhatsNew = true
             local currentVersion = GetAddonVersion()
-            if currentVersion and ItemWatchDB.lastSeenVersion ~= currentVersion and whatsNewFrame then
-                whatsNewFrame:Show()
+            if currentVersion and ItemWatchDB.lastSeenVersion ~= currentVersion then
+                ItemWatchDB.lastSeenVersion = currentVersion
+                print(RainbowText("ItemWatch has updated to "..currentVersion.."!")..
+                    " |cff69ccf0|Hitemwatch_whatsnew|h[Click here for patch notes]|h|r")
             end
         end
     end

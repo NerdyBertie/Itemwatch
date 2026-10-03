@@ -1,8 +1,13 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: ItemWatch
 ## Notes: Movable icon + count displays for tracking specific items in your bags
 ## Author: NerdyBertie
 ## Version: @project-version@
+## Category: NerdyBertie
+## IconTexture: Interface\AddOns\ItemWatch\Media\icon
+## AddonCompartmentFunc: ItemWatch_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: ItemWatch_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: ItemWatch_OnAddonCompartmentLeave
 ## SavedVariablesPerCharacter: ItemWatchDB
 ## X-Curse-Project-ID: 1624699
 ## X-Wago-ID: vNAgDjKo
