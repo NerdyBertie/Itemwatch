@@ -1771,19 +1771,53 @@ end
 -- Shared "NerdyBertie" heading in Options > AddOns. Every NerdyBertie addon
 -- carries this same function: whichever one loads first builds the heading
 -- and stores it in the NerdyBertie_SettingsCategory global, and every other
--- one finds it there and files its own settings underneath. The brand page
--- is text only, so it looks identical no matter which addon built it.
+-- one finds it there and files its own settings underneath. Each addon ships
+-- its own copy of the workshop image (Media/workshop.tga) and points at its
+-- own folder, so the page looks identical no matter which addon built it.
+-- The list below marks each addon "(installed)" if it's currently loaded.
+local WORKSHOP_ADDONS = {
+    { name = "HandyNotes: Dive Bar Front Crawl", folder = "HandyNotes_DiveBarCrawl" },
+    { name = "ItemWatch",                        folder = "ItemWatch" },
+    { name = "Boomkin Buff Watcher",             folder = "BoomkinBuffWatcher" },
+    { name = "Holiday Herald",                   folder = "HolidayHerald" },
+}
+
 local function GetBrandCategory()
     if NerdyBertie_SettingsCategory then return NerdyBertie_SettingsCategory end
     local panel = CreateFrame("Frame")
+    local mascot = panel:CreateTexture(nil, "ARTWORK")
+    mascot:SetSize(80, 80)
+    mascot:SetPoint("TOPLEFT", 16, -16)
+    mascot:SetTexture("Interface\\AddOns\\ItemWatch\\Media\\workshop")
     local heading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    heading:SetPoint("TOPLEFT", 16, -16)
-    heading:SetText("NerdyBertie")
+    heading:SetPoint("TOPLEFT", mascot, "TOPRIGHT", 14, -10)
+    heading:SetText("NerdyBertie's Addon Workshop")
+    local presents = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    presents:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -6)
+    presents:SetText("presents...")
     local blurb = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    blurb:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -12)
+    blurb:SetPoint("TOPLEFT", mascot, "BOTTOMLEFT", 0, -16)
     blurb:SetWidth(560)
     blurb:SetJustifyH("LEFT")
-    blurb:SetText("Addons from the NerdyBertie workshop. Pick one from the list on the left to see its settings.")
+    blurb:SetText("Addons for quality of life improvements. If you'd like to check out my other addons, here's the list:")
+    local lines = {}
+    for i, addon in ipairs(WORKSHOP_ADDONS) do
+        local line = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        line:SetPoint("TOPLEFT", (i == 1) and blurb or lines[i - 1], "BOTTOMLEFT", (i == 1) and 12 or 0, (i == 1) and -12 or -6)
+        lines[i] = line
+        line.addon = addon
+    end
+    local footer = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    footer:SetPoint("TOPLEFT", lines[#lines], "BOTTOMLEFT", -12, -16)
+    footer:SetWidth(560)
+    footer:SetJustifyH("LEFT")
+    footer:SetText("Find them all on CurseForge, Wago, and WoWInterface. Pick an installed one from the list on the left to see its settings.")
+    panel:SetScript("OnShow", function()
+        for i, line in ipairs(lines) do
+            local loaded = C_AddOns and C_AddOns.IsAddOnLoaded(line.addon.folder)
+            line:SetText(i .. ". " .. line.addon.name .. (loaded and "  |cff33ff33(installed)|r" or ""))
+        end
+    end)
     local category = Settings.RegisterCanvasLayoutCategory(panel, "NerdyBertie")
     Settings.RegisterAddOnCategory(category)
     NerdyBertie_SettingsCategory = category
