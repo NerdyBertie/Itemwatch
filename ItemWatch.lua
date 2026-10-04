@@ -2211,6 +2211,9 @@ local CHANGELOG = {
         highlights = {
             "Update notices now show up as a clickable chat link instead of a pop-up window - less intrusive, and click it whenever you've got a moment to read what's new.",
             "The \"Add to Shopping List\" button no longer shows up on Death Knight Runeforging (or any other reagent-less crafting window) - nothing to shop for there.",
+            "ItemWatch now has its own icon in the AddOn List, and an entry in the addon dropdown next to the minimap: left-click shows/hides the box, right-click opens settings.",
+            "ItemWatch's settings now live under NerdyBertie's Addon Workshop in Options > AddOns.",
+            "Now marked as compatible with the WoW Forever beta. It hasn't been tested there yet, so please report anything that looks off.",
         },
     },
     {
