@@ -187,6 +187,16 @@ MIT — see LICENSE for details.
 
 ---
 
+More from NerdyBertie
+
+If ItemWatch helped you out, you might like these too:
+
+HandyNotes: Dive Bar Front Crawl — map pins for every underwater Tortollan dive bar in the Dive Bar Front Crawl housing endeavor
+Handynotes: Seeking the Soulstones - HandyNotes Plugin for warlocks finding soulstones in the Green Fire Questline
+Boomkin Buff Watcher — keeps Balance Druids on top of their Astral Power and Eclipse state
+Holiday Herald — friendly reminders when in-game holidays start, with links to their meta-achievements, goodies, secrets, more! 
+
+Find them all by searching NerdyBertie on CurseForge, WoWInterface or Wago.
 If you find ItemWatch useful, consider supporting me on
 [Ko-fi](https://ko-fi.com/nerdybertie) — totally optional, but always
 appreciated! You can also find me on
