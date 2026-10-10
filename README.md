@@ -18,18 +18,21 @@ eye on an exact item count without repeatedly opening your bags.
   icon inside to remove it.
 - **Recipe Shopping List** — click "Add to Shopping List" on any recipe
   in the Professions Recipes tab, and ItemWatch reads its full reagent
-  list and builds a shopping list for you automatically. Making more
-  than one? Set the quantity right in the window ("Crafting: __ x this
-  recipe") and every reagent's needed amount updates live - no need to
-  re-add the recipe. Required reagents track live progress (counting
-  bank and warband bank, not just bags) and show a "Need: X" line for
+  list and builds a shopping list for you automatically. It holds as
+  many recipes as you like, so leveling a profession is easy: add the
+  wrist guards, the chest and the legs, and any materials they share
+  (like metal bars) are added together into one row with the combined
+  total. Each recipe has its own "how many" box and an x to remove it,
+  and clicking "Add to Shopping List" on a recipe that's already there
+  adds one more. Required reagents track live progress (counting bank
+  and warband bank, not just bags) and show a "Need: X" line for
   anything you're still short on, so there's no mental math while
   you're standing at the Auction House. Optional/finishing reagents
   show as a plain reminder, and reagents you can't buy on the Auction
   House are flagged "[vendor/earned only]" instead of silently
-  vanishing. The window is movable, resizable, lockable, persists
-  across logout/reload, and asks before replacing an already-open list
-  so an accidental click won't wipe your progress.
+  vanishing. The window is movable, resizable, lockable, scrolls with
+  the mouse wheel, persists across logout/reload, and has a "Clear all"
+  button (it asks first) to start over.
 - **Quick-Add popup** — track items you don't have yet by pasting a
   Wowhead link, typing an item ID, or shift-clicking an item straight
   into the field. Set a goal and sound in one step.
@@ -54,15 +57,17 @@ eye on an exact item count without repeatedly opening your bags.
   background regardless.
 - **Minimap button** — left-click to show/hide the box, right-click for
   settings. Built on LibDataBroker + LibDBIcon, so it's automatically
-  compatible with minimap button "tray" addons (ElvUI's built-in one,
-  Dominos, Bartender4, MBB, SexyMap, etc.).
+  compatible with minimap button "tray" addons.
 - **In-game documentation** — the settings panel has expandable
   sub-pages covering how to use ItemWatch, the Recipe Shopping List,
   practical usage ideas (like Auction House shopping lists built from
   the main box), and contact/support info.
-- **What's New popup** — a quick highlight reel shows once after each
-  update (and doubles as an intro if you're new to ItemWatch). Bring it
-  back any time with `/iw whatsnew`.
+- **What's New** — after each update, a clickable "patch notes" link
+  appears in chat. Click it to see the highlights, or bring them back any
+  time with `/iw whatsnew`.
+- **NerdyBertie's Addon Workshop** — ItemWatch's settings live under a
+  shared Workshop page in Options > AddOns, which lists my other addons
+  (the ones you have installed are marked).
 - All the original `/iw` slash commands still work, unchanged — the box
   and popups are additional ways in, not replacements.
 - Lightweight — event-driven, no polling.
@@ -93,11 +98,16 @@ eye on an exact item count without repeatedly opening your bags.
 **Building a shopping list from a recipe:**
 1. Open any profession's Recipes tab and select a recipe.
 2. Click "Add to Shopping List."
-3. Required reagents show live have/needed progress (bank + reagent bank
-   + warband bank included), optional reagents show as a reminder, and
-   anything you can't buy is flagged "[vendor/earned only]."
-4. The window sticks around - move it, resize it, lock it, or just leave
-   it open. It'll still be there if you log out mid-farm.
+3. Open another recipe and click it again to add it too. Shared
+   materials are combined into one total. Change a recipe's "how many"
+   box, or click the x to take it off the list.
+4. Required reagents show live have/needed progress (bank + warband bank
+   included), optional reagents show as a reminder, and anything you
+   can't buy is flagged "[vendor/earned only]."
+5. The window sticks around - move it, resize it, lock it, scroll it, or
+   just leave it open. It'll still be there if you log out mid-farm. The
+   X only hides it (`/iw shopping` brings it back); "Clear all" empties
+   the list.
 
 ### Commands
 
@@ -114,7 +124,8 @@ eye on an exact item count without repeatedly opening your bags.
 | `/iw sound [itemID] on\|off` | Toggle the goal-reached sound for an item |
 | `/iw testsound` | Preview the default goal sound |
 | `/iw addrecipe` | Add the currently-open recipe to the Shopping List |
-| `/iw whatsnew` | Show the What's New popup again |
+| `/iw shopping` | Show the Shopping List window again |
+| `/iw whatsnew` | Show the What's New highlights again |
 | `/iw options` | Open the settings panel |
 
 Ctrl+Shift+Click an item in your bags also adds it directly, no item ID
@@ -172,8 +183,7 @@ option, so you can use any sound file ID you can find (try
   (the rest of the addon still works fine, it just quietly skips that
   one feature).
 - The Ctrl+Shift+Click add-from-bags shortcut only works with Blizzard's
-  default bag UI. If you use a bag-replacement addon (Baganator,
-  ArkInventory, Bagnon, etc.), use `/iw add [itemID]` or the Quick-Add
+  default bag UI. If you use a bag-replacement addon, use `/iw add [itemID]` or the Quick-Add
   popup instead.
 
 ## Contributing / Issues
@@ -187,21 +197,9 @@ MIT — see LICENSE for details.
 
 ---
 
-More from NerdyBertie
-
-If ItemWatch helped you out, you might like these too:
-
-HandyNotes: Dive Bar Front Crawl — map pins for every underwater Tortollan dive bar in the Dive Bar Front Crawl housing endeavor
-Handynotes: Seeking the Soulstones - HandyNotes Plugin for warlocks finding soulstones in the Green Fire Questline
-Boomkin Buff Watcher — keeps Balance Druids on top of their Astral Power and Eclipse state
-Holiday Herald — friendly reminders when in-game holidays start, with links to their meta-achievements, goodies, secrets, more! 
-
-Find them all by searching NerdyBertie on CurseForge, WoWInterface or Wago.
 If you find ItemWatch useful, consider supporting me on
 [Ko-fi](https://ko-fi.com/nerdybertie) — totally optional, but always
 appreciated! You can also find me on
 [Twitch](https://www.twitch.tv/nerdybertie),
-[Tiktok](https://www.tiktok.com/@nerdybertie),
 [YouTube](https://www.youtube.com/@nerdybertie), or
 [Discord](https://discord.gg/bXbMR6rzcF) - NerdyBertie
-
