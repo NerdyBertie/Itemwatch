@@ -195,6 +195,17 @@ suggestions welcome.
 
 MIT — see LICENSE for details.
 
+## More from NerdyBertie
+
+If ItemWatch is helping you keep your farming lazy and your crafting organized, feel free to check out my other addons!
+
+- **HandyNotes: Dive Bar Front Crawl** — map pins for every underwater Tortollan dive bar in the Dive Bar Front Crawl housing endeavor
+- **HandyNotes: Seeking the Soulstones** — map pins for finding the soulstones, as part of the Warlock Green Fire questchain in Outland
+- **Boomkin Buff Watcher** — keeps Balance Druids on top of their Astral Power and Eclipse state
+- **Holiday Herald** — friendly reminders when in-game holidays start, with links to their meta-achievements, goodies, secrets, and more!
+
+Find them all by searching **NerdyBertie** on CurseForge, WoWInterface, WowUp, or Wago.
+
 ---
 
 If you find ItemWatch useful, consider supporting me on
@@ -202,4 +213,4 @@ If you find ItemWatch useful, consider supporting me on
 appreciated! You can also find me on
 [Twitch](https://www.twitch.tv/nerdybertie),
 [YouTube](https://www.youtube.com/@nerdybertie), or
-[Discord](https://discord.gg/bXbMR6rzcF) - NerdyBertie
+[Discord](https://discord.gg/bXbMR6rzcF) - NerdyBertie's Tinker Workshop
