@@ -58,6 +58,10 @@ eye on an exact item count without repeatedly opening your bags.
 - **Minimap button** — left-click to show/hide the box, right-click for
   settings. Built on LibDataBroker + LibDBIcon, so it's automatically
   compatible with minimap button "tray" addons.
+- **Works great with [Holiday Herald](https://www.curseforge.com/projects/1723649)!**
+  Ctrl-click a holiday's shopping list in Holiday Herald to add every item
+  to ItemWatch in one go, with the amounts added on top of your current
+  goals.
 - **In-game documentation** — the settings panel has expandable
   sub-pages covering how to use ItemWatch, the Recipe Shopping List,
   practical usage ideas (like Auction House shopping lists built from
