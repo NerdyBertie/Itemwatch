@@ -12,13 +12,10 @@ local defaults = {
     shoppingList = {
         active = false,      -- whether there's a current shopping list to show
         dismissed = true,    -- true = window closed/hidden by the user
-        recipeName = nil,
-        required = {},       -- { itemID, name, perCraft, needed, isBoP }
-        optional = {},       -- { itemID, name } - reminder-only, no goal tracking
+        recipes = {},        -- { recipeID, name, qty, required = {...}, optional = {...} } - any number of recipes
         point = "CENTER", x = 0, y = -150,
         width = 260, height = 400,
         locked = false,
-        craftQuantity = 1,   -- how many of the recipe you're making; scales each required reagent's "needed" amount
     },
 }
 
@@ -78,16 +75,14 @@ StaticPopupDialogs["ITEMWATCH_CONFIRM_CLEAR"] = {
     preferredIndex = 3,
 }
 
--- Confirmation before replacing an already-active Shopping List. text and
--- OnAccept get overwritten per-click right before StaticPopup_Show (this
--- is standard practice for a dialog whose message depends on which recipe
--- was clicked) - failsafe against both "I changed my mind on the recipe"
--- and an accidental double-click on the button.
-StaticPopupDialogs["ITEMWATCH_CONFIRM_REPLACE_SHOPPING_LIST"] = {
-    text = "Replace your current Shopping List?",
-    button1 = "Replace",
+-- Confirmation before wiping the whole Shopping List
+StaticPopupDialogs["ITEMWATCH_CONFIRM_CLEAR_SHOPPING_LIST"] = {
+    text = "Clear every recipe from your Shopping List?",
+    button1 = "Clear all",
     button2 = "Cancel",
-    OnAccept = function() end, -- overwritten before showing
+    OnAccept = function()
+        if ns.ClearShoppingList then ns.ClearShoppingList() end
+    end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
@@ -1137,23 +1132,73 @@ function OpenItemEditPopup(itemID)
 end
 
 local shoppingListFrame = nil
-local shoppingListRows = {} -- itemID -> row frame, for required reagents
+local recipeWidgets = {}  -- pooled widgets for the recipe list at the top of the window
+local reagentWidgets = {} -- pooled widgets for the combined reagent rows
 
--- Rescales every required reagent's "needed" amount by a new craft
--- quantity (e.g. making 20 potions instead of 1), using each reagent's
--- stored perCraft amount as the base so this can be called repeatedly
--- without compounding. Older saved lists from before this field existed
--- won't have perCraft yet - fall back to treating the current needed
--- amount as the per-craft base in that case.
-local function ApplyCraftQuantity(newQty)
-    local data = ItemWatchDB.shoppingList
-    newQty = math.max(1, math.floor(tonumber(newQty) or 1))
-    data.craftQuantity = newQty
-    for _, reagent in ipairs(data.required) do
-        reagent.perCraft = reagent.perCraft or reagent.needed or 1
-        reagent.needed = reagent.perCraft * newQty
+-- The Shopping List holds any number of recipes at once. Each entry is
+-- { recipeID, name, qty, required = { {itemID, name, perCraft, isBoP} },
+-- optional = { {itemID, name} } }. The reagent rows the player sees are
+-- built by adding every recipe's reagents together (see
+-- BuildMergedReagents), so a bar used by three recipes shows up once with
+-- the combined total.
+local function FindShoppingRecipe(recipeID)
+    for i, r in ipairs(ItemWatchDB.shoppingList.recipes) do
+        if r.recipeID == recipeID then return r, i end
     end
+end
+
+local function ClearShoppingList()
+    local data = ItemWatchDB.shoppingList
+    wipe(data.recipes)
+    data.active = false
+    data.dismissed = true
+    if shoppingListFrame then shoppingListFrame:Hide() end
+end
+ns.ClearShoppingList = ClearShoppingList
+
+local function SetRecipeQuantity(recipeID, newQty)
+    local entry = FindShoppingRecipe(recipeID)
+    if not entry then return end
+    newQty = math.max(1, math.floor(tonumber(newQty) or 1))
+    if entry.qty == newQty then return end
+    entry.qty = newQty
     if RefreshShoppingList then RefreshShoppingList() end
+end
+
+local function RemoveShoppingRecipe(recipeID)
+    local _, index = FindShoppingRecipe(recipeID)
+    if not index then return end
+    table.remove(ItemWatchDB.shoppingList.recipes, index)
+    if #ItemWatchDB.shoppingList.recipes == 0 then
+        ClearShoppingList()
+    elseif RefreshShoppingList then
+        RefreshShoppingList()
+    end
+end
+
+-- Adds up every recipe's required reagents (perCraft x quantity) into one
+-- row per item, in the order each item first appears. Returns that list
+-- plus how many of the recipes have optional finishing reagents.
+local function BuildMergedReagents()
+    local merged, byID, recipesWithOptional = {}, {}, 0
+    for _, recipe in ipairs(ItemWatchDB.shoppingList.recipes) do
+        local qty = recipe.qty or 1
+        for _, reagent in ipairs(recipe.required or {}) do
+            local m = byID[reagent.itemID]
+            if not m then
+                m = { itemID = reagent.itemID, name = reagent.name, needed = 0, isBoP = false }
+                byID[reagent.itemID] = m
+                merged[#merged + 1] = m
+            end
+            m.name = m.name or reagent.name
+            m.needed = m.needed + (reagent.perCraft or 1) * qty
+            if reagent.isBoP then m.isBoP = true end
+        end
+        if recipe.optional and #recipe.optional > 0 then
+            recipesWithOptional = recipesWithOptional + 1
+        end
+    end
+    return merged, recipesWithOptional
 end
 
 -- Builds the Shopping List window - separate from the main Item Box,
@@ -1247,54 +1292,59 @@ local function CreateShoppingListWindow()
     end)
     lockBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local recipeNameText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    recipeNameText:SetPoint("TOPLEFT", titleBar, "BOTTOMLEFT", 6, -6)
-    recipeNameText:SetPoint("TOPRIGHT", titleBar, "BOTTOMRIGHT", -6, -6)
-    recipeNameText:SetJustifyH("LEFT")
-    recipeNameText:SetTextColor(1, 0.82, 0)
-    panel.recipeNameText = recipeNameText
-
-    local content = CreateFrame("Frame", nil, panel)
-    content:SetPoint("TOPLEFT", recipeNameText, "BOTTOMLEFT", 0, -8)
-    content:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 56)
+    -- The list scrolls (mouse wheel), since several recipes can add up to
+    -- more rows than the window shows at once.
+    local scroll = CreateFrame("ScrollFrame", nil, panel)
+    scroll:SetPoint("TOPLEFT", titleBar, "BOTTOMLEFT", 6, -6)
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 34)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(1, 1)
+    scroll:SetScrollChild(content)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local maxScroll = math.max(0, content:GetHeight() - self:GetHeight())
+        local cur = self:GetVerticalScroll()
+        self:SetVerticalScroll(math.min(maxScroll, math.max(0, cur - delta * 30)))
+    end)
+    panel.scroll = scroll
     panel.content = content
 
-    -- Craft quantity - "how many of the recipe are you making," not tied
-    -- to the reagent row list, so it's anchored to the panel's own
-    -- bottom edge (like statusText below) rather than living inside
-    -- content. That keeps it always visible regardless of resizing or
-    -- how many reagents there are to scroll past. Changing this re-scales
-    -- every required reagent's needed amount live - see ApplyCraftQuantity.
-    local craftQtyLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    craftQtyLabel:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 6, 32)
-    craftQtyLabel:SetText("Crafting:")
+    local recipesHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    recipesHeader:SetTextColor(1, 0.82, 0)
+    recipesHeader:SetText("Recipes (how many of each)")
+    panel.recipesHeader = recipesHeader
 
-    local craftQtyBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
-    craftQtyBox:SetSize(44, 20)
-    craftQtyBox:SetAutoFocus(false)
-    craftQtyBox:SetNumeric(true)
-    craftQtyBox:SetPoint("LEFT", craftQtyLabel, "RIGHT", 10, 0)
-    craftQtyBox:SetText(tostring(ItemWatchDB.shoppingList.craftQuantity or 1))
-    craftQtyBox:SetScript("OnEnterPressed", function(self)
-        ApplyCraftQuantity(self:GetText())
-        self:ClearFocus()
-    end)
-    craftQtyBox:SetScript("OnEditFocusLost", function(self)
-        ApplyCraftQuantity(self:GetText())
-    end)
-    craftQtyBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    panel.craftQtyBox = craftQtyBox
+    local totalsHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    totalsHeader:SetTextColor(1, 0.82, 0)
+    totalsHeader:SetText("Everything you need")
+    panel.totalsHeader = totalsHeader
 
-    local craftQtyHint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    craftQtyHint:SetPoint("LEFT", craftQtyBox, "RIGHT", 6, 0)
-    craftQtyHint:SetText("x this recipe")
+    local optNote = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    optNote:SetJustifyH("LEFT")
+    optNote:SetJustifyV("TOP")
+    optNote:SetWordWrap(true)
+    optNote:SetTextColor(1, 0.82, 0)
+    panel.optNote = optNote
+
+    local clearBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    clearBtn:SetSize(80, 20)
+    clearBtn:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 6, 8)
+    clearBtn:SetText("Clear all")
+    clearBtn:SetScript("OnClick", function()
+        StaticPopup_Show("ITEMWATCH_CONFIRM_CLEAR_SHOPPING_LIST")
+    end)
 
     local statusText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statusText:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 6, 8)
-    statusText:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 8)
-    statusText:SetJustifyH("CENTER")
+    statusText:SetPoint("LEFT", clearBtn, "RIGHT", 10, 0)
+    statusText:SetPoint("RIGHT", panel, "RIGHT", -22, 0)
+    statusText:SetJustifyH("LEFT")
+    statusText:SetWordWrap(false)
     statusText:SetTextColor(0.4, 1, 0.4)
     panel.statusText = statusText
+
+    panel:SetScript("OnShow", function()
+        if RefreshShoppingList then RefreshShoppingList() end
+    end)
 
     -- Resize handle, bottom-right corner - same texture set as the Item Box's
     local resizeHandle = CreateFrame("Button", nil, panel)
@@ -1321,240 +1371,330 @@ local function CreateShoppingListWindow()
     return panel
 end
 
--- Rebuilds the Shopping List's visible rows from ItemWatchDB.shoppingList
--- and updates each required reagent's "have vs. needed" progress.
+-- Prepared Cooking ingredients: a one-line hover tip for each (they have
+-- several sources, and which one to use is the player's call), plus a
+-- small tag on the one that can't be looted at all.
+local INGREDIENT_TIPS = {
+    [242639] = "Can be looted from meaty mobs, or made by salvaging animal parts (Cooking > Prepared Ingredients).", -- Practically Pork
+    [242640] = "Can be looted, or made by salvaging plant parts (Cooking > Prepared Ingredients).",                  -- Plant Protein
+    [253403] = "Can only be made by salvaging fish (Cooking > Prepared Ingredients).",                              -- Thalassian Fillet
+}
+local SALVAGE_ONLY = {
+    [253403] = true, -- Thalassian Fillet
+}
+
+-- Creates (or reuses) the Nth pooled recipe-row widget
+local function GetRecipeWidget(index)
+    local w = recipeWidgets[index]
+    if w then return w end
+    local f = CreateFrame("Frame", nil, shoppingListFrame.content)
+    f:SetHeight(22)
+
+    local box = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+    box:SetSize(34, 18)
+    box:SetPoint("LEFT", f, "LEFT", 6, 0)
+    box:SetAutoFocus(false)
+    box:SetNumeric(true)
+    box:SetMaxLetters(3)
+    box:SetJustifyH("CENTER")
+
+    local removeBtn = CreateFrame("Button", nil, f)
+    removeBtn:SetSize(16, 16)
+    removeBtn:SetPoint("RIGHT", f, "RIGHT", -2, 0)
+    local x = removeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    x:SetPoint("CENTER")
+    x:SetText("x")
+    x:SetTextColor(1, 0.3, 0.3)
+
+    local name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    name:SetPoint("LEFT", box, "RIGHT", 8, 0)
+    name:SetPoint("RIGHT", removeBtn, "LEFT", -4, 0)
+    name:SetJustifyH("LEFT")
+    name:SetWordWrap(false)
+
+    w = { frame = f, box = box, name = name, removeBtn = removeBtn }
+    box:SetScript("OnEnterPressed", function(self)
+        SetRecipeQuantity(w.recipeID, self:GetText())
+        self:ClearFocus()
+    end)
+    box:SetScript("OnEditFocusLost", function(self)
+        SetRecipeQuantity(w.recipeID, self:GetText())
+    end)
+    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    box:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("How many of this recipe are you making?")
+        GameTooltip:Show()
+    end)
+    box:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    removeBtn:SetScript("OnClick", function() RemoveShoppingRecipe(w.recipeID) end)
+    removeBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Remove this recipe from the list")
+        GameTooltip:Show()
+    end)
+    removeBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    recipeWidgets[index] = w
+    return w
+end
+
+-- Creates (or reuses) the Nth pooled reagent-row widget
+local function GetReagentWidget(index)
+    local w = reagentWidgets[index]
+    if w then return w end
+    local row = CreateFrame("Button", nil, shoppingListFrame.content)
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(18, 18)
+    icon:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("TOPLEFT", icon, "TOPRIGHT", 6, 0)
+    label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    label:SetJustifyH("LEFT")
+    label:SetJustifyV("TOP")
+    label:SetWordWrap(true)
+    local needLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    needLabel:SetJustifyH("LEFT")
+    needLabel:SetTextColor(0, 1, 1)
+
+    w = { frame = row, icon = icon, label = label, needLabel = needLabel }
+
+    -- Shift-click to link/search, same as the main Item Box's icons
+    row:RegisterForClicks("AnyUp")
+    row:SetScript("OnClick", function()
+        if w.itemID and IsModifierKeyDown and IsModifierKeyDown() then
+            local _, itemLink = GetItemInfo(w.itemID)
+            if itemLink and HandleModifiedItemClick then
+                HandleModifiedItemClick(itemLink)
+            end
+        end
+    end)
+    row:SetScript("OnEnter", function(self)
+        if not w.itemID then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetItemByID(w.itemID)
+        if INGREDIENT_TIPS[w.itemID] then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(INGREDIENT_TIPS[w.itemID], 1, 0.82, 0, true)
+        end
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Shift-click: link in chat / paste into AH search", 0.6, 0.8, 1)
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    reagentWidgets[index] = w
+    return w
+end
+
+-- Rebuilds the Shopping List's visible rows from ItemWatchDB.shoppingList:
+-- the recipe list on top, then one combined row per reagent with live
+-- have-vs-needed progress.
 function RefreshShoppingList()
     if not shoppingListFrame then return end
     local data = ItemWatchDB.shoppingList
     if not data.active then return end
 
-    for _, row in pairs(shoppingListRows) do
-        row:Hide()
-    end
-    wipe(shoppingListRows)
+    local f = shoppingListFrame
+    local content = f.content
 
-    shoppingListFrame.recipeNameText:SetText(data.recipeName or "")
+    for _, w in ipairs(recipeWidgets) do w.frame:Hide() end
+    for _, w in ipairs(reagentWidgets) do w.frame:Hide() end
+    f.optNote:Hide()
 
-    -- Keep the craft-quantity field in sync with saved data (e.g. after
-    -- restoring from logout, or a resize triggering a re-layout) - but
-    -- never stomp on it while the player's actively typing a new value.
-    if shoppingListFrame.craftQtyBox and not shoppingListFrame.craftQtyBox:HasFocus() then
-        shoppingListFrame.craftQtyBox:SetText(tostring(data.craftQuantity or 1))
-    end
+    local width = f.scroll:GetWidth()
+    if not width or width < 50 then width = (data.width or 260) - 12 end
+    content:SetWidth(width)
 
     local yOffset = 0
-    local allSatisfied = true
 
-    -- Conservative chars-per-line estimate for this label's font/width,
-    -- same approach used for the optional-reagents note below and the
-    -- options-panel doc pages - GetStringHeight() right after SetText can
-    -- return a stale single-line value for wrapped text, so estimating
-    -- from character count is the more reliable measure here.
-    -- Bumped from 26 to 31 after real-world evidence: a 27-char name
-    -- ("Tranquility Bloom (162/240)") rendered as one line in-game but
-    -- the old threshold guessed two, leaving a phantom gap before the
-    -- Need line. This is still an estimate, not pixel-perfect measurement
-    -- (window can be resized to different widths), so some fuzziness at
-    -- the edges is expected either direction - erring toward "slightly
-    -- too much room" is the safer failure mode over text overlapping.
+    -- Recipe list
+    f.recipesHeader:ClearAllPoints()
+    f.recipesHeader:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+    yOffset = yOffset - 16
+    for i, recipe in ipairs(data.recipes) do
+        local w = GetRecipeWidget(i)
+        w.recipeID = recipe.recipeID
+        w.frame:ClearAllPoints()
+        w.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+        w.frame:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
+        w.name:SetText(recipe.name or "Recipe")
+        -- Never stomp on the box while the player is typing in it
+        if not w.box:HasFocus() then w.box:SetText(tostring(recipe.qty or 1)) end
+        w.frame:Show()
+        yOffset = yOffset - 24
+    end
+
+    yOffset = yOffset - 8
+    f.totalsHeader:ClearAllPoints()
+    f.totalsHeader:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+    yOffset = yOffset - 18
+
+    -- Conservative chars-per-line estimate for the reagent label's
+    -- font/width - GetStringHeight() right after SetText can return a
+    -- stale single-line value for wrapped text, so estimating from
+    -- character count is the more reliable measure here. It's an
+    -- estimate, not pixel-perfect (the window can be resized), and
+    -- erring toward "slightly too much room" is the safer failure mode
+    -- over text overlapping.
     local ROW_CHARS_PER_LINE = 31
     local ROW_LINE_HEIGHT = 13
     local ROW_MIN_HEIGHT = 20
     local ROW_GAP = 3
+    local NEED_LINE_HEIGHT = 13
+    local rowWidth = math.max(150, width)
 
-    local contentWidth = shoppingListFrame.content:GetWidth()
-    local rowWidth = math.max(150, contentWidth)
+    local merged, recipesWithOptional = BuildMergedReagents()
+    local allSatisfied = true
 
-    for _, reagent in ipairs(data.required) do
+    for i, reagent in ipairs(merged) do
         -- Unlike the main Item Box (deliberately bags + reagent bag only,
         -- for an always-exactly-accurate live count), the Shopping List is
         -- answering a different question - "do I still need to go buy
-        -- this" - so it should count bank, reagent bank, AND warbank too.
-        -- Otherwise it'll nag you to buy something you already have 300
-        -- of sitting in your bank.
+        -- this" - so it counts bank, reagent bank, AND warbank too.
         local have = C_Item.GetItemCount(reagent.itemID, true, false, true, true)
         local satisfied = have >= reagent.needed
         if not satisfied then allSatisfied = false end
         local shortfall = math.max(0, reagent.needed - have)
 
-        local text = (reagent.name or ("item #"..reagent.itemID)).." ("..have.."/"..reagent.needed..")"
+        local name = reagent.name or GetItemInfo(reagent.itemID) or ("item #"..reagent.itemID)
+        local text = name.." ("..have.."/"..reagent.needed..")"
         if reagent.isBoP then
             text = text.." |cff888888[vendor/earned only]|r"
+        elseif SALVAGE_ONLY[reagent.itemID] then
+            text = text.." |cff888888[salvage only]|r"
         end
 
-        -- Strip WoW color escape codes before estimating wrapped line
-        -- count - they add invisible characters that would otherwise
-        -- inflate the estimate and reserve more row height than the
-        -- visible text actually needs.
+        -- Strip color escapes before estimating wrapped line count -
+        -- they're invisible characters that would inflate the estimate.
         local visibleText = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-
-        -- Long item names (e.g. crafted gun components) can wrap to two
-        -- or more lines - size the row to match instead of a fixed
-        -- height, so the next row doesn't overlap this one's text.
         local estimatedLines = math.max(1, math.ceil(#visibleText / ROW_CHARS_PER_LINE))
         local rowHeight = math.max(ROW_MIN_HEIGHT, estimatedLines * ROW_LINE_HEIGHT + 6)
-
-        -- "Need: X" only shows up when there's an actual shortfall - an
-        -- already-satisfied reagent is already green and self-evident, so
-        -- a "Need: 0" line under it would just be noise. Add a bit of
-        -- extra row height to fit the second line when it's shown.
-        local NEED_LINE_HEIGHT = 13
+        -- "Need: X" only shows when there's an actual shortfall; an
+        -- already-satisfied reagent is green and self-evident.
         if shortfall > 0 then
             rowHeight = rowHeight + NEED_LINE_HEIGHT + 2
         end
-
-        local row = CreateFrame("Button", nil, shoppingListFrame.content)
-        row:SetSize(rowWidth, rowHeight)
-        row:SetPoint("TOPLEFT", shoppingListFrame.content, "TOPLEFT", 0, yOffset)
-
-        local icon = row:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(18, 18)
-        icon:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        local w = GetReagentWidget(i)
+        w.itemID = reagent.itemID
+        w.frame:ClearAllPoints()
+        w.frame:SetSize(rowWidth, rowHeight)
+        w.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
         local _, _, _, _, _, _, _, _, _, texture = GetItemInfo(reagent.itemID)
-        icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-
-        local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        label:SetPoint("TOPLEFT", icon, "TOPRIGHT", 6, 0)
-        label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-        label:SetJustifyH("LEFT")
-        label:SetJustifyV("TOP")
-        label:SetWordWrap(true)
-        label:SetText(text)
-        label:SetTextColor(satisfied and 0.2 or 1, satisfied and 1 or 1, satisfied and 0.2 or 1)
-
+        w.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
+        w.label:SetText(text)
+        w.label:SetTextColor(satisfied and 0.2 or 1, 1, satisfied and 0.2 or 1)
         if shortfall > 0 then
-            local needLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            needLabel:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 14, -(estimatedLines - 1) * ROW_LINE_HEIGHT - 2)
-            needLabel:SetJustifyH("LEFT")
-            needLabel:SetText("Need: "..shortfall)
-            needLabel:SetTextColor(0, 1, 1)
+            w.needLabel:ClearAllPoints()
+            -- anchored to the row, not the label, so it can't double-count the wrapped height
+            w.needLabel:SetPoint("TOPLEFT", w.frame, "TOPLEFT", 38, -(estimatedLines * ROW_LINE_HEIGHT + 3))
+            w.needLabel:SetText("Need: "..shortfall)
+            w.needLabel:Show()
+        else
+            w.needLabel:Hide()
         end
-
-        -- Shift-click to link/search, same as the main Item Box's icons
-        local itemID = reagent.itemID
-        row:RegisterForClicks("AnyUp")
-        row:SetScript("OnClick", function()
-            if IsModifiedClick and IsModifiedClick("CHATLINK") then
-                local _, itemLink = GetItemInfo(itemID)
-                if itemLink and HandleModifiedItemClick then
-                    HandleModifiedItemClick(itemLink)
-                end
-            elseif IsModifierKeyDown and IsModifierKeyDown() then
-                local _, itemLink = GetItemInfo(itemID)
-                if itemLink and HandleModifiedItemClick then
-                    HandleModifiedItemClick(itemLink)
-                end
-            end
-        end)
-        row:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetItemByID(itemID)
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Shift-click: link in chat / paste into AH search", 0.6, 0.8, 1)
-            GameTooltip:Show()
-        end)
-        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-        shoppingListRows[reagent.itemID] = row
+        w.frame:Show()
         yOffset = yOffset - rowHeight - ROW_GAP
     end
 
-    if #data.optional > 0 then
+    if recipesWithOptional > 0 then
         yOffset = yOffset - 8
-        local optText = #data.optional.." optional finishing reagent"..(#data.optional == 1 and "" or "s")..
-            " can be used for this recipe, check the crafting window for details."
-
-        -- Estimate wrapped line count from text length rather than a
-        -- fixed height guess, same approach used for the docs pages -
-        -- a fixed height here previously cut the text off with "..."
-        local CHARS_PER_LINE = 34 -- conservative for this width/font
-        local estimatedLines = math.max(1, math.ceil(#optText / CHARS_PER_LINE))
-        local boxHeight = estimatedLines * 14 + 4
-
-        local optNote = CreateFrame("Frame", nil, shoppingListFrame.content)
-        optNote:SetPoint("TOPLEFT", shoppingListFrame.content, "TOPLEFT", 0, yOffset)
-        optNote:SetPoint("TOPRIGHT", shoppingListFrame.content, "TOPRIGHT", 0, yOffset)
-        optNote:SetHeight(boxHeight)
-        local optNoteText = optNote:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        optNoteText:SetAllPoints(optNote)
-        optNoteText:SetJustifyH("LEFT")
-        optNoteText:SetJustifyV("TOP")
-        optNoteText:SetWordWrap(true)
-        optNoteText:SetTextColor(1, 0.82, 0)
-        optNoteText:SetText(optText)
-        shoppingListRows["_optheader"] = optNote
+        local optText = recipesWithOptional == 1
+            and "1 recipe on this list has optional finishing reagents, check the crafting window for details."
+            or (recipesWithOptional.." recipes on this list have optional finishing reagents, check the crafting window for details.")
+        local CHARS_PER_LINE = 34
+        local lines = math.max(1, math.ceil(#optText / CHARS_PER_LINE))
+        local boxHeight = lines * 14 + 4
+        f.optNote:ClearAllPoints()
+        f.optNote:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+        f.optNote:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
+        f.optNote:SetHeight(boxHeight)
+        f.optNote:SetText(optText)
+        f.optNote:Show()
         yOffset = yOffset - boxHeight - 6
     end
 
-    if allSatisfied and #data.required > 0 then
-        shoppingListFrame.statusText:SetText("All set, close this after you craft it!")
-        shoppingListFrame.statusText:Show()
+    content:SetHeight(math.max(1, -yOffset + 4))
+    -- Keep the scroll position valid if the list just got shorter
+    local maxScroll = math.max(0, content:GetHeight() - f.scroll:GetHeight())
+    if f.scroll:GetVerticalScroll() > maxScroll then f.scroll:SetVerticalScroll(maxScroll) end
+
+    if allSatisfied and #merged > 0 then
+        f.statusText:SetText("All set!")
+        f.statusText:Show()
     else
-        shoppingListFrame.statusText:Hide()
+        f.statusText:Hide()
     end
 end
 
--- Reads the currently-open recipe (via the confirmed working path on the
--- Recipes tab) and populates the Shopping List with it.
--- Builds the Shopping List from an already-read recipe schematic. Split
--- out from AddRecipeToShoppingList so the confirmation prompt below can
--- read the recipe first (to know its name for the prompt text) before
--- deciding whether to apply it immediately or ask first.
-local function ApplyRecipeToShoppingList(schematic)
-    local data = ItemWatchDB.shoppingList
-    data.recipeName = schematic.name
-    data.required = {}
-    data.optional = {}
-    data.craftQuantity = 1 -- fresh recipe = fresh craft count, not whatever the last one was left at
+-- True when a recipe has no reagent slots at all, so there's nothing to
+-- shop for (e.g. Hearty Feast, which only asks you to pick an item you
+-- already own). Salvage recipes that also need a bought reagent, like
+-- Recycle Flasks with its Oil of Heartwood, DO have slots and are kept.
+local function RecipeHasNothingToShop(schematic)
+    if not schematic then return true end
+    return not (schematic.reagentSlotSchematics and #schematic.reagentSlotSchematics > 0)
+end
 
-    if schematic.reagentSlotSchematics then
-        for _, slot in ipairs(schematic.reagentSlotSchematics) do
-            if slot.reagentType == 1 then
-                -- Required reagents are a single fixed item per slot
-                local itemID = slot.reagents and slot.reagents[1] and slot.reagents[1].itemID
-                if itemID then
-                    local name = GetItemInfo(itemID)
-                    local bindType = select(14, GetItemInfo(itemID))
-                    local perCraft = slot.quantityRequired or 1
-                    table.insert(data.required, {
-                        itemID = itemID,
-                        name = name,
-                        perCraft = perCraft,   -- amount needed for ONE craft; the craft-quantity field scales this
-                        needed = perCraft,     -- craftQuantity is 1 on a fresh add, so needed == perCraft for now
-                        isBoP = (bindType == 1),
-                    })
-                end
-            elseif slot.reagentType == 2 then
-                -- Optional/finishing slots can offer several eligible
-                -- choices (e.g. different embellishments for the same
-                -- socket) - list every choice, not just the first one,
-                -- so the player can see the full menu of options.
-                if slot.reagents then
-                    for _, reagentChoice in ipairs(slot.reagents) do
-                        if reagentChoice.itemID then
-                            local name = GetItemInfo(reagentChoice.itemID)
-                            table.insert(data.optional, { itemID = reagentChoice.itemID, name = name })
+-- Adds one more of a recipe to the Shopping List (or a first one, if it
+-- isn't on the list yet), from an already-read recipe schematic.
+local function ApplyRecipeToShoppingList(recipeID, schematic)
+    local data = ItemWatchDB.shoppingList
+    local entry = FindShoppingRecipe(recipeID)
+
+    if entry then
+        entry.qty = (entry.qty or 1) + 1
+    else
+        entry = { recipeID = recipeID, name = schematic.name, qty = 1, required = {}, optional = {} }
+        if schematic.reagentSlotSchematics then
+            for _, slot in ipairs(schematic.reagentSlotSchematics) do
+                if slot.reagentType == 1 then
+                    -- Required reagents are a single fixed item per slot
+                    local itemID = slot.reagents and slot.reagents[1] and slot.reagents[1].itemID
+                    if itemID then
+                        local name = GetItemInfo(itemID)
+                        local bindType = select(14, GetItemInfo(itemID))
+                        table.insert(entry.required, {
+                            itemID = itemID,
+                            name = name,
+                            perCraft = slot.quantityRequired or 1, -- amount for ONE craft; scaled by the recipe's qty
+                            isBoP = (bindType == 1),
+                        })
+                    end
+                elseif slot.reagentType == 2 then
+                    -- Optional slots can offer several eligible choices -
+                    -- list every one so the player sees the full menu.
+                    if slot.reagents then
+                        for _, choice in ipairs(slot.reagents) do
+                            if choice.itemID then
+                                table.insert(entry.optional, { itemID = choice.itemID, name = GetItemInfo(choice.itemID) })
+                            end
                         end
                     end
                 end
             end
         end
+        table.insert(data.recipes, entry)
     end
 
     data.active = true
     data.dismissed = false
-    print("|cff00ff00ItemWatch:|r added \""..(data.recipeName or "recipe").."\" to your Shopping List.")
+    if entry.qty > 1 then
+        print("|cff00ff00ItemWatch:|r \""..(entry.name or "recipe").."\" is now x"..entry.qty.." on your Shopping List.")
+    else
+        print("|cff00ff00ItemWatch:|r added \""..(entry.name or "recipe").."\" to your Shopping List. (recipe "..tostring(recipeID)..")")
+    end
 
     RefreshShoppingList()
-    shoppingListFrame:ClearAllPoints()
-    shoppingListFrame:SetPoint(data.point or "CENTER", UIParent, data.point or "CENTER", data.x or 0, data.y or -150)
-    shoppingListFrame:Show()
+    if not shoppingListFrame:IsShown() then
+        shoppingListFrame:ClearAllPoints()
+        shoppingListFrame:SetPoint(data.point or "CENTER", UIParent, data.point or "CENTER", data.x or 0, data.y or -150)
+        shoppingListFrame:Show()
+    end
 end
 
 -- Reads the currently-open recipe (via the confirmed working path on the
--- Recipes tab). If a Shopping List is already active, confirms before
--- replacing it - protects both "I changed my mind on the recipe" and an
--- accidental double-click on the button.
+-- Recipes tab) and adds it to the Shopping List.
 local function AddRecipeToShoppingList()
     if not (ProfessionsFrame and ProfessionsFrame.CraftingPage
             and ProfessionsFrame.CraftingPage.SchematicForm
@@ -1574,23 +1714,12 @@ local function AddRecipeToShoppingList()
         return
     end
 
-    local data = ItemWatchDB.shoppingList
-    -- Only prompt if there's a list that's both active AND still open -
-    -- closing the window (the X button) signals "I'm done with this
-    -- recipe," so a fresh add afterward should just proceed without
-    -- asking. Same active-and-not-dismissed pairing the logout-restore
-    -- logic already uses, for consistency.
-    if data.active and not data.dismissed then
-        StaticPopupDialogs["ITEMWATCH_CONFIRM_REPLACE_SHOPPING_LIST"].text =
-            "Replace your current Shopping List (\""..(data.recipeName or "current recipe")..
-            "\") with \""..(schematic.name or "this recipe").."\"?"
-        StaticPopupDialogs["ITEMWATCH_CONFIRM_REPLACE_SHOPPING_LIST"].OnAccept = function()
-            ApplyRecipeToShoppingList(schematic)
-        end
-        StaticPopup_Show("ITEMWATCH_CONFIRM_REPLACE_SHOPPING_LIST")
-    else
-        ApplyRecipeToShoppingList(schematic)
+    if RecipeHasNothingToShop(schematic) then
+        print("|cffff8800ItemWatch:|r \""..(schematic.name or "that recipe").."\" has no reagents to shop for, so it wasn't added.")
+        return
     end
+
+    ApplyRecipeToShoppingList(recipeID, schematic)
 end
 
 local recipeAddButton = nil
@@ -1616,9 +1745,6 @@ local function CreateRecipeAddButton()
     -- Blizzard's own Create button or the reagent list. Nudge the offsets
     -- below once you've seen it in-game.
     btn:SetPoint("BOTTOMLEFT", form, "BOTTOMLEFT", 10, 40)
-    btn:SetAlpha(0)
-    btn:EnableMouse(false)
-
     btn:SetScript("OnClick", function()
         AddRecipeToShoppingList()
     end)
@@ -1647,14 +1773,29 @@ local function CreateRecipeAddButton()
         local recipeID = schematicForm and schematicForm.recipeSchematic
             and schematicForm.recipeSchematic.recipeID
 
-        if recipeID == self.lastCheckedRecipeID then return end
+        if recipeID and recipeID == self.lastCheckedRecipeID and (self.zeroChecks or 0) == 0 then return end
+        if recipeID ~= self.lastCheckedRecipeID then self.zeroChecks = 0 end
         self.lastCheckedRecipeID = recipeID
 
-        local hasReagentSlots = false
+        -- Only hide the button when we positively know the selected
+        -- recipe has no reagent slots at all. If nothing is selected yet,
+        -- or the recipe's data can't be read (or hasn't loaded yet), the
+        -- button stays visible - hiding on "don't know" is how it could
+        -- go missing on a profession whose data arrives late.
+        local knownEmpty = false
         if recipeID then
             local ok, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
-            hasReagentSlots = ok and schematic and schematic.reagentSlotSchematics
-                and #schematic.reagentSlotSchematics > 0
+            if ok and schematic and RecipeHasNothingToShop(schematic) then
+                -- Require a few empty reads in a row before believing it,
+                -- in case the schematic is still loading
+                self.zeroChecks = (self.zeroChecks or 0) + 1
+                if self.zeroChecks >= 4 then
+                    knownEmpty = true
+                    self.zeroChecks = 0 -- settled; stop re-reading until the recipe changes
+                end
+            else
+                self.zeroChecks = 0
+            end
         end
 
         -- Uses alpha + mouse toggling rather than Show()/Hide() - a
@@ -1664,13 +1805,23 @@ local function CreateRecipeAddButton()
         -- reagents. This achieves the same visible effect (invisible,
         -- unclickable, no tooltip) while staying "shown" internally so
         -- it keeps checking.
-        if hasReagentSlots then
-            self:SetAlpha(1)
-            self:EnableMouse(true)
-        else
+        if self.zeroChecks and self.zeroChecks > 0 and not knownEmpty then
+            return -- still confirming an empty read; leave the button as it is
+        end
+        if knownEmpty then
             self:SetAlpha(0)
             self:EnableMouse(false)
+        else
+            self:SetAlpha(1)
+            self:EnableMouse(true)
         end
+    end)
+
+    -- Re-check from scratch whenever the crafting form is shown again (for
+    -- example after switching to a different profession)
+    form:HookScript("OnShow", function()
+        btn.lastCheckedRecipeID = nil
+        btn.zeroChecks = 0
     end)
 
     recipeAddButton = btn
@@ -1812,12 +1963,18 @@ local function GetBrandCategory()
     footer:SetWidth(560)
     footer:SetJustifyH("LEFT")
     footer:SetText("Find them all on CurseForge, Wago, and WoWInterface. Pick an installed one from the list on the left to see its settings.")
-    panel:SetScript("OnShow", function()
+    -- Fill the list in right away and again on every show, so it's never
+    -- blank no matter how Options was opened.
+    local function RefreshList()
         for i, line in ipairs(lines) do
             local loaded = C_AddOns and C_AddOns.IsAddOnLoaded(line.addon.folder)
-            line:SetText(i .. ". " .. line.addon.name .. (loaded and "  |cff33ff33(installed)|r" or ""))
+            line:SetText(i .. ". " .. line.addon.name
+                .. (loaded and "  |cff33ff33(installed)|r" or ""))
         end
-    end)
+    end
+    RefreshList()
+    panel:SetScript("OnShow", RefreshList)
+    panel:Hide()
     local category = Settings.RegisterCanvasLayoutCategory(panel, "NerdyBertie")
     Settings.RegisterAddOnCategory(category)
     NerdyBertie_SettingsCategory = category
@@ -2076,18 +2233,22 @@ local function BuildOptionsPanel()
                   "This is a separate window from the Item Box, built specifically for \"I need this right now to craft something\" rather than long-term tracking goals. (If you've seen the Practical Uses tip about building an Auction House list from the main box - that's a different, informal use of the box itself. This page is about the dedicated Shopping List window.)" },
                 { "Starting a Shopping List",
                   "Open a recipe on the Recipes tab of any profession and click \"Add to Shopping List.\" ItemWatch reads that recipe's full reagent list and builds the list for you automatically - no manual entry needed." },
+                { "More than one recipe",
+                  "The list holds as many recipes as you like - handy when you're leveling a profession and want the wrist guards, the chest and the legs all at once. Keep clicking \"Add to Shopping List\" on each recipe. Materials the recipes share (like metal bars) are added together into a single row with the combined total. Each recipe has its own box for how many you're making, and an x to take just that recipe off the list. Clicking \"Add to Shopping List\" on a recipe that's already there adds one more of it." },
                 { "Required reagents",
                   "Each shows a live have/needed count and turns green once you've got enough. If you're still short, a \"Need: X\" line shows the exact amount left to buy - no mental math required. These count everything you own: bags, bank, AND warband bank - deliberately different from the main Item Box, which only ever counts bags." },
                 { "Optional reagents",
                   "Missives, embellishments, and similar finishing reagents show as a plain reminder instead of an auto-added goal - which one you want is a build-specific choice ItemWatch shouldn't make for you." },
                 { "\"[vendor/earned only]\" tag",
                   "Some required reagents (Sparks, Enchanted Crests, and similar) can't be bought on the Auction House at all. Rather than leave them off the list and risk you getting blindsided at craft time, they're included with this tag so you know it's earned, not purchased." },
+                { "Clear all, and the X",
+                  "The \"Clear all\" button (it asks first) empties the whole list so you can start fresh. The X in the corner only hides the window - your list is kept, and typing /iw shopping brings it back. If the list gets long, scroll it with the mouse wheel." },
                 { "Moving, resizing, and locking",
                   "Drag the title bar to move the window, drag the bottom-right corner to resize it, and use the lock icon next to the X to stop accidental drags or resizes while you're clicking around inside it." },
                 { "It stays open across logout",
                   "If you get pulled away mid-task, the Shopping List (including its progress) is still there when you log back in - it doesn't just vanish like the Quick-Add popup would." },
-                { "\"All set, close this after you craft it!\"",
-                  "Once every required reagent is satisfied, the window tells you so - but doesn't close itself automatically, since having the materials isn't the same as having actually crafted the item yet. Dismiss it with the X whenever you're done." },
+                { "\"All set!\"",
+                  "Once every required reagent is satisfied, the window tells you so - but doesn't clear itself automatically, since having the materials isn't the same as having actually crafted the items yet. Hit Clear all whenever you're done." },
             }
             local shoppingListPanel = BuildSectionedSubpage("Shopping List", "The Recipe Shopping List", shoppingListSections)
             Settings.RegisterCanvasLayoutSubcategory(category, shoppingListPanel, shoppingListPanel.name)
@@ -2147,7 +2308,7 @@ local function BuildOptionsPanel()
             aboutBody:SetWidth(500)
             aboutBody:SetJustifyH("LEFT")
             aboutBody:SetWordWrap(true)
-            aboutBody:SetText("ItemWatch started as a way to stop opening bags every five seconds while farming. It's grown into a full item-goal tracker: a movable box, per-item sounds, and a minimap button - built for anyone who'd rather glance at a number than dig through their bags. More recently it picked up a Recipe Shopping List too, so a whole crafting run's worth of reagents comes together with one click instead of adding each mat by hand.")
+            aboutBody:SetText("ItemWatch started as a way to stop opening bags every five seconds while farming. It's grown into a full item-goal tracker: a movable box, per-item sounds, and a minimap button - built for anyone who'd rather glance at a number than dig through their bags. More recently it picked up a Recipe Shopping List too, so a whole crafting run's worth of reagents comes together with one click instead of adding each mat by hand - and it can hold several recipes at once, adding up the materials they share.")
 
             local aboutLinks = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
             aboutLinks:SetPoint("TOPLEFT", aboutBody, "BOTTOMLEFT", -4, -20)
@@ -2206,6 +2367,16 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.3.0",
+        highlights = {
+            "NEW: the Shopping List now holds more than one recipe at a time. Leveling a profession? Add the wrist guards, the chest and the legs, and ItemWatch adds up the shared materials for you - three recipes that all use metal bars show one combined bar total.",
+            "Each recipe on the list has its own \"how many\" box, and an x to remove just that recipe. Click \"Add to Shopping List\" on a recipe that's already there to add one more of it.",
+            "New \"Clear all\" button (it asks first) to start over. Closing the window with the X now just hides it - your list is kept, and /iw shopping brings it back.",
+            "Hover Practically Pork, Plant Protein or Thalassian Fillet in the list to see where it comes from (looting and/or salvaging). Thalassian Fillet, which can only be made by salvaging, gets a small [salvage only] tag.",
+            "The list scrolls with the mouse wheel when it gets long. A Shopping List you had open when you updated carries over automatically.",
+        },
+    },
     {
         version = "2.2.6",
         highlights = {
@@ -2417,6 +2588,40 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         CreateRecipeAddButton()
     elseif event == "ADDON_LOADED" and arg1 == ADDON_NAME then
         ItemWatchDB = CopyDefaults(defaults, ItemWatchDB or {})
+
+        -- Upgrade a single-recipe Shopping List saved by an older version
+        -- into the new multi-recipe format, so nobody loses a list that
+        -- was open when they updated.
+        local oldList = ItemWatchDB.shoppingList
+        if oldList.required then
+            -- (only if it was still open - a list the player had already
+            -- closed was finished with, so it isn't brought back)
+            if #oldList.required > 0 and #oldList.recipes == 0
+                    and oldList.active and not oldList.dismissed then
+                local qty = oldList.craftQuantity or 1
+                local required = {}
+                for _, r in ipairs(oldList.required) do
+                    table.insert(required, {
+                        itemID = r.itemID,
+                        name = r.name,
+                        perCraft = r.perCraft or r.needed or 1,
+                        isBoP = r.isBoP,
+                    })
+                end
+                table.insert(oldList.recipes, {
+                    recipeID = 0, -- unknown for lists saved before this version
+                    name = oldList.recipeName or "Saved recipe",
+                    qty = qty,
+                    required = required,
+                    optional = oldList.optional or {},
+                })
+            end
+            oldList.required = nil
+            oldList.optional = nil
+            oldList.recipeName = nil
+            oldList.craftQuantity = nil
+        end
+        if #oldList.recipes == 0 then oldList.active = false end
         itemBox = CreateItemBox()
         quickAddFrame = CreateQuickAddPopup()
         itemEditFrame = CreateItemEditPopup()
@@ -2516,6 +2721,30 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         print("|cff00ff00ItemWatch:|r frames unlocked - drag them to move.")
     elseif cmd == "addrecipe" then
         AddRecipeToShoppingList()
+    elseif cmd == "buttoncheck" then
+        local form = ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm
+        local rid = form and form.recipeSchematic and form.recipeSchematic.recipeID
+        local ok, sch = false, nil
+        if rid then ok, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, rid, false) end
+        print("|cff00ffffItemWatch buttoncheck:|r button="..tostring(recipeAddButton ~= nil)
+            ..", alpha="..tostring(recipeAddButton and recipeAddButton:GetAlpha())
+            ..", shown="..tostring(recipeAddButton and recipeAddButton:IsShown())
+            ..", parent="..tostring(recipeAddButton and recipeAddButton:GetParent() and recipeAddButton:GetParent():GetName())
+            ..", recipeID="..tostring(rid)
+            ..", schematicOK="..tostring(ok)
+            ..", reagentSlots="..tostring(sch and sch.reagentSlotSchematics and #sch.reagentSlotSchematics))
+    elseif cmd == "shopping" then
+        local sl = ItemWatchDB.shoppingList
+        if #sl.recipes == 0 then
+            print("|cff00ff00ItemWatch:|r your Shopping List is empty - open a recipe and click \"Add to Shopping List.\"")
+        else
+            sl.active = true
+            sl.dismissed = false
+            RefreshShoppingList()
+            shoppingListFrame:ClearAllPoints()
+            shoppingListFrame:SetPoint(sl.point or "CENTER", UIParent, sl.point or "CENTER", sl.x or 0, sl.y or -150)
+            shoppingListFrame:Show()
+        end
     elseif cmd == "hoverdump" then
         -- Complements /fstack: that shows frame NAMES under the cursor,
         -- this reads frame DATA by direct reference instead - works even
