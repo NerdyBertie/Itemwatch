@@ -1,4 +1,4 @@
-# ItemWatch
+# ItemWatch & Shopping List
 
 ## v2.3.0
 
