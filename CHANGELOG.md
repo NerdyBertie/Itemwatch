@@ -3,7 +3,12 @@
 ## v2.3.1
 
 ### Fixed
-- Fixed an error ("attempt to call a nil value") that stopped items from being added to ItemWatch after WoW patch 12.1.5. This also fixes Ctrl-clicking a holiday's shopping list in Holiday Herald.
+- Fixed an error ("attempt to call a nil value") that appeared after WoW patch 12.1.5. Blizzard removed the old item lookup function the item box relied on, so tracked items could be added but not drawn or refreshed until a /reload. The box now draws and updates normally again.
+- Adding items from other addons, such as Ctrl-clicking a holiday's shopping list in Holiday Herald, works right away.
+
+### Changed
+- Added support for patch 12.1.5.
+- The addon is now listed as "ItemWatch & Shopping List". Your tracked items and shopping lists are unchanged.
 
 ## v2.3.0
 
