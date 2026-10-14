@@ -1,4 +1,9 @@
-# ItemWatch & Shopping List
+# ItemWatch
+
+## v2.3.1
+
+### Fixed
+- Fixed an error ("attempt to call a nil value") that stopped items from being added to ItemWatch after WoW patch 12.1.5. This also fixes Ctrl-clicking a holiday's shopping list in Holiday Herald.
 
 ## v2.3.0
 

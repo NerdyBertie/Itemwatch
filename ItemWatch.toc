@@ -1,6 +1,6 @@
-## Interface: 120100, 16001
-## Title: ItemWatch
-## Notes: Movable icon + count displays for tracking specific items in your bags
+## Interface: 120100, 120105, 16001
+## Title: ItemWatch & Shopping List
+## Notes: Track item counts with goals and sounds in a movable box, and build a shopping list from any crafting recipe.
 ## Author: NerdyBertie
 ## Version: @project-version@
 ## Category: NerdyBertie

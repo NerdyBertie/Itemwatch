@@ -1,5 +1,11 @@
 local ADDON_NAME, ns = ...
 
+-- Item info lives in C_Item on current clients; the old global GetItemInfo
+-- can be missing, so use the C_Item version when it exists. This local
+-- covers every GetItemInfo call in the file, and the return values are in
+-- the same order as the old global.
+local GetItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+
 -- Default saved-variable structure
 local defaults = {
     items = {},      -- list of { id = itemID, point = "CENTER", x = 0, y = 0 }
@@ -2367,6 +2373,12 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.3.1",
+        highlights = {
+            "Fixed an error (\"attempt to call a nil value\") that stopped items from being added to ItemWatch, including Ctrl-clicking a holiday's shopping list in Holiday Herald, after WoW patch 12.1.5.",
+        },
+    },
     {
         version = "2.3.0",
         highlights = {
