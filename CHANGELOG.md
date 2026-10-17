@@ -1,5 +1,10 @@
 # ItemWatch
 
+## v2.3.3
+
+### Fixed
+- The little silver/gold star on tracked crafting materials showed one level too high (a 2-star silver material showed as gold). It now matches the real rank.
+
 ## v2.3.2
 
 ### Fixed

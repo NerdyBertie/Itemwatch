@@ -335,8 +335,12 @@ local function UpdateQualityBadge(f, itemID)
             quality = C_TradeSkillUI.GetItemReagentQualityByItemInfo(itemID)
         end
     end)
-    if ok and quality then
-        f.qualityBadge:SetAtlas("Professions-Icon-Quality-Tier"..(quality + 1), false)
+    -- The quality is the reagent's own rank (1 = bronze, 2 = silver,
+    -- 3 = gold), which is exactly the number in the badge's atlas name.
+    local atlas = quality and ("Professions-Icon-Quality-Tier"..quality)
+    local atlasOK = atlas and (not (C_Texture and C_Texture.GetAtlasInfo) or C_Texture.GetAtlasInfo(atlas))
+    if ok and atlasOK then
+        f.qualityBadge:SetAtlas(atlas, false)
         f.qualityBadge:Show()
     else
         f.qualityBadge:Hide()
@@ -2581,6 +2585,12 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.3.3",
+        highlights = {
+            "Fixed the silver/gold star on tracked crafting materials showing one level too high (a 2-star silver material showed as gold). It now matches the real rank.",
+        },
+    },
     {
         version = "2.3.2",
         highlights = {
