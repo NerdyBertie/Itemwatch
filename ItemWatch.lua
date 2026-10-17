@@ -14,6 +14,8 @@ local defaults = {
     box = { point = "CENTER", x = 0, y = 150, width = 220, height = 180 },
     hideInCombat = false,
     hideInPetBattles = false,
+    hideShoppingInCombat = false,
+    boxHidden = false,   -- true = the player hid the box themselves (stays hidden across combat, reloads and logout)
     minimapIcon = { hide = false },
     shoppingList = {
         active = false,      -- whether there's a current shopping list to show
@@ -28,6 +30,16 @@ local defaults = {
 local MIN_BOX_WIDTH, MIN_BOX_HEIGHT = 160, 100
 
 local frames = {}    -- itemID -> frame
+
+-- How many of an item the box should show. Normally just bags (and the
+-- reagent bag); an item flagged includeBank - the ones added from a vendor
+-- window - also counts the bank and warband bank. Nothing else changes.
+local function GetEntryCount(entry)
+    if entry.includeBank then
+        return C_Item.GetItemCount(entry.id, true, false, true, true)
+    end
+    return C_Item.GetItemCount(entry.id, false, false, true)
+end
 local FRAME_SIZE = 36
 
 -- Sets the count text, sizing the font off its length. Only ever shows
@@ -123,13 +135,41 @@ local inPetBattle = false
 -- the box just doesn't visually interrupt combat or a pet battle.
 local function UpdateBoxVisibility()
     if not itemBox then return end
-    local shouldHide = (inCombat and ItemWatchDB.hideInCombat) or
+    -- A box the player hid on purpose stays hidden no matter what; the
+    -- combat/pet-battle toggles only ever hide an otherwise-visible box.
+    local shouldHide = ItemWatchDB.boxHidden or
+                        (inCombat and ItemWatchDB.hideInCombat) or
                         (inPetBattle and ItemWatchDB.hideInPetBattles)
     if shouldHide then
         itemBox:Hide()
     else
         itemBox:Show()
     end
+end
+
+-- Hide/show chosen by the player (minimap button, addon compartment,
+-- /iw hide, /iw show). Remembered in the saved variables.
+local function SetBoxHidden(hidden)
+    ItemWatchDB.boxHidden = hidden and true or false
+    UpdateBoxVisibility()
+    local check = _G["ItemWatchHideBoxCheck"]
+    if check then check:SetChecked(ItemWatchDB.boxHidden) end
+end
+
+local function ToggleBoxHidden()
+    SetBoxHidden(not ItemWatchDB.boxHidden)
+end
+
+-- Puts the box back at the center of the screen and unhides it - the
+-- rescue button for a box that's hidden or stuck somewhere unreachable.
+local function ResetBox()
+    local d = defaults.box
+    ItemWatchDB.box.point, ItemWatchDB.box.x, ItemWatchDB.box.y = d.point, d.x, d.y
+    if itemBox then
+        itemBox:ClearAllPoints()
+        itemBox:SetPoint(d.point, UIParent, d.point, d.x, d.y)
+    end
+    SetBoxHidden(false)
 end
 local LayoutBox -- forward declaration; defined after item frames are set up below
 local HandleItemDroppedOnBox -- forward declaration; defined after AddItem below
@@ -359,12 +399,15 @@ local function CreateItemFrame(entry)
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("ItemWatch", 0.4, 1, 0.4)
         if entry.goal then
-            local count = C_Item.GetItemCount(entry.id, false, false, true)
+            local count = GetEntryCount(entry)
             if count >= entry.goal then
                 GameTooltip:AddLine("Goal reached! ("..count.."/"..entry.goal..")", 0.2, 1, 0.2)
             else
                 GameTooltip:AddLine("Progress: "..count.."/"..entry.goal, 1, 0.82, 0)
             end
+        end
+        if entry.includeBank then
+            GameTooltip:AddLine("Counting bank and warband bank too", 0.7, 0.7, 0.7)
         end
         GameTooltip:AddLine("Left-click: edit goal/sound", 0.6, 0.8, 1)
         GameTooltip:AddLine("Shift-click: link in chat", 0.6, 0.8, 1)
@@ -418,7 +461,7 @@ local function RefreshFrame(entry)
 
     UpdateQualityBadge(f, entry.id)
 
-    local count = C_Item.GetItemCount(entry.id, false, false, true)
+    local count = GetEntryCount(entry)
 
     if entry.goal then
         SetItemCountText(f.count, tostring(count))
@@ -537,7 +580,7 @@ local function SetGoal(itemID, amount)
     -- silently (no ding) - only a genuinely new completion during actual
     -- gameplay should play a sound, not just setting/editing a goal that
     -- happens to already be satisfied.
-    local count = C_Item.GetItemCount(itemID, false, false, true)
+    local count = GetEntryCount(entry)
     entry.goalReached = (count >= amount)
     RefreshFrame(entry)
     print("|cff00ff00ItemWatch:|r goal for item "..itemID.." set to "..amount)
@@ -556,6 +599,80 @@ function ItemWatch_AddToGoal(itemID, amount)
     if not entry then return false end
     SetGoal(itemID, (entry.goal or 0) + amount)
     return true
+end
+
+-- Vendor purchases that cost items ----------------------------------------
+-- Some vendors sell things for items (cloth, ore, gems) instead of gold.
+-- WoW tells addons what each vendor entry costs, so Alt-clicking an entry
+-- in the vendor window can track those cost items for you, with the goal
+-- set to the amount required. Alt-click it again for a second purchase and
+-- the goals add up. Items added this way also count your bank and warband
+-- bank (the rest of the box keeps its bags-only counting).
+local function GetVendorItemCosts(index)
+    local costs = {}
+    if not (index and GetMerchantItemCostInfo and GetMerchantItemCostItem) then
+        return costs
+    end
+    local n = GetMerchantItemCostInfo(index) or 0
+    for i = 1, n do
+        local _, value, link = GetMerchantItemCostItem(index, i)
+        local id = link and tonumber(link:match("item:(%d+)"))
+        if id and value and value > 0 then
+            costs[#costs + 1] = { id = id, amount = value }
+        end
+    end
+    return costs
+end
+
+local function TrackVendorItemCosts(index)
+    local costs = GetVendorItemCosts(index)
+    if #costs == 0 then
+        print("|cffff8800ItemWatch:|r that vendor item doesn't cost any items, so there's nothing to track.")
+        return
+    end
+    for _, c in ipairs(costs) do
+        local isNew = not FindEntry(c.id)
+        if isNew then AddItem(c.id) end
+        local entry = FindEntry(c.id)
+        if entry then
+            if isNew then entry.includeBank = true end
+            ItemWatch_AddToGoal(c.id, c.amount)
+        end
+    end
+end
+
+local vendorHooked = {}
+function ItemWatch_HookVendorButtons()
+    for i = 1, 20 do
+        local b = _G["MerchantItem"..i.."ItemButton"]
+        if b and not vendorHooked[b] then
+            vendorHooked[b] = true
+            b:HookScript("OnClick", function(self, button)
+                if button == "LeftButton" and IsAltKeyDown()
+                    and not IsShiftKeyDown() and not IsControlKeyDown()
+                    and MerchantFrame and MerchantFrame.selectedTab == 1 then
+                    -- a plain click on a vendor entry can pick it up onto the
+                    -- cursor; put it back so Alt-click is just a tracking click
+                    if GetCursorInfo() == "merchant" then ClearCursor() end
+                    TrackVendorItemCosts(self:GetID())
+                end
+            end)
+        end
+    end
+end
+
+if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
+    and Enum and Enum.TooltipDataType then
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip)
+        if tooltip ~= GameTooltip then return end
+        local owner = tooltip:GetOwner()
+        local name = owner and owner.GetName and owner:GetName()
+        if name and name:match("^MerchantItem%d+ItemButton$")
+            and MerchantFrame and MerchantFrame.selectedTab == 1
+            and #GetVendorItemCosts(owner:GetID()) > 0 then
+            tooltip:AddLine("Alt-click: Track the items used to buy this in ItemWatch", 0.4, 1, 0.4)
+        end
+    end)
 end
 
 local function ClearGoal(itemID)
@@ -661,7 +778,7 @@ local function OpenItemWatchOptions()
     if Settings and Settings.OpenToCategory and optionsCategory then
         Settings.OpenToCategory(optionsCategory:GetID())
     elseif InterfaceOptionsFrame_OpenToCategory then
-        InterfaceOptionsFrame_OpenToCategory("ItemWatch")
+        InterfaceOptionsFrame_OpenToCategory("ItemWatch & Shopping List")
     else
         print("|cffff8800ItemWatch:|r couldn't open settings automatically - check Options > AddOns > ItemWatch manually.")
     end
@@ -686,19 +803,13 @@ local function CreateMinimapButton()
         icon = "Interface\\Icons\\INV_Sigil_UlduarAll",
         OnClick = function(self, button)
             if button == "LeftButton" then
-                if itemBox then
-                    if itemBox:IsShown() then
-                        itemBox:Hide()
-                    else
-                        itemBox:Show()
-                    end
-                end
+                ToggleBoxHidden()
             elseif button == "RightButton" then
                 OpenItemWatchOptions()
             end
         end,
         OnTooltipShow = function(tooltip)
-            tooltip:AddLine("ItemWatch")
+            tooltip:AddLine("ItemWatch & Shopping List")
             tooltip:AddLine("Left-click: show/hide the box", 0.8, 0.8, 0.8)
             tooltip:AddLine("Right-click: open settings", 0.8, 0.8, 0.8)
         end,
@@ -715,13 +826,7 @@ end
 -- name string, which only resolves against the global namespace.
 function ItemWatch_OnAddonCompartmentClick(addonName, buttonName)
     if buttonName == "LeftButton" then
-        if itemBox then
-            if itemBox:IsShown() then
-                itemBox:Hide()
-            else
-                itemBox:Show()
-            end
-        end
+        ToggleBoxHidden()
     elseif buttonName == "RightButton" then
         OpenItemWatchOptions()
     end
@@ -729,7 +834,7 @@ end
 
 function ItemWatch_OnAddonCompartmentEnter(addonName, menuButtonFrame)
     GameTooltip:SetOwner(menuButtonFrame, "ANCHOR_LEFT")
-    GameTooltip:AddLine("ItemWatch")
+    GameTooltip:AddLine("ItemWatch & Shopping List")
     GameTooltip:AddLine("Left-click: show/hide the box", 0.8, 0.8, 0.8)
     GameTooltip:AddLine("Right-click: open settings", 0.8, 0.8, 0.8)
     GameTooltip:Show()
@@ -959,6 +1064,16 @@ local function CreateItemEditPopup()
     goalBox:SetScript("OnEscapePressed", function(self) self:ClearFocus(); panel:Hide() end)
     panel.goalBox = goalBox
 
+    local bankCheck = CreateFrame("CheckButton", "ItemWatchItemEditBankCheck", panel, "UICheckButtonTemplate")
+    bankCheck:SetSize(24, 24)
+    bankCheck:SetPoint("LEFT", goalBox, "RIGHT", 10, 0)
+    local bankText = _G["ItemWatchItemEditBankCheckText"]
+    bankText:SetText("Also count bank and\nwarband bank")
+    bankText:SetFontObject("GameFontNormalSmall")
+    bankText:SetTextColor(0.4, 1, 0.4)
+    bankText:SetJustifyH("LEFT")
+    panel.bankCheck = bankCheck
+
     local soundLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     soundLabel:SetPoint("TOPLEFT", goalBox, "BOTTOMLEFT", -6, -18)
     soundLabel:SetText("Goal-reached sound for this item:")
@@ -1085,6 +1200,11 @@ local function CreateItemEditPopup()
         local itemID = panel.itemID
         if not itemID then panel:Hide() return end
 
+        local editedEntry = FindEntry(itemID)
+        if editedEntry then
+            editedEntry.includeBank = bankCheck:GetChecked() and true or nil
+        end
+
         local goalText = goalBox:GetText()
         if goalText and goalText ~= "" then
             local amount = tonumber(goalText)
@@ -1127,6 +1247,7 @@ function OpenItemEditPopup(itemID)
     itemEditFrame.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
     itemEditFrame.nameText:SetText(name or ("Item #"..itemID))
     itemEditFrame.goalBox:SetText(entry.goal and tostring(entry.goal) or "")
+    itemEditFrame.bankCheck:SetChecked(entry.includeBank and true or false)
 
     if entry.soundEnabled == false then
         itemEditFrame.SelectEditSound(MUTED_SOUND)
@@ -1699,6 +1820,38 @@ local function ApplyRecipeToShoppingList(recipeID, schematic)
     end
 end
 
+-- Shows or hides the Shopping List window to match what the player wants
+-- plus the optional hide-in-combat setting. Hiding for combat never marks
+-- the list "dismissed" - it comes straight back when combat ends.
+local function UpdateShoppingListVisibility()
+    if not shoppingListFrame then return end
+    local sl = ItemWatchDB.shoppingList
+    local wanted = sl.active and not sl.dismissed and #sl.recipes > 0
+    local suppressed = inCombat and ItemWatchDB.hideShoppingInCombat
+    if wanted and not suppressed then
+        if not shoppingListFrame:IsShown() then shoppingListFrame:Show() end
+    elseif shoppingListFrame:IsShown() then
+        shoppingListFrame:Hide()
+    end
+end
+
+-- Reopens the Shopping List window (used by /iw shopping and the settings
+-- button). Returns false if there's nothing on the list.
+local function ShowShoppingList()
+    local sl = ItemWatchDB.shoppingList
+    if #sl.recipes == 0 then
+        print("|cff00ff00ItemWatch:|r your Shopping List is empty - open a recipe and click \"Add to Shopping List.\"")
+        return false
+    end
+    sl.active = true
+    sl.dismissed = false
+    RefreshShoppingList()
+    shoppingListFrame:ClearAllPoints()
+    shoppingListFrame:SetPoint(sl.point or "CENTER", UIParent, sl.point or "CENTER", sl.x or 0, sl.y or -150)
+    UpdateShoppingListVisibility()
+    return true
+end
+
 -- Reads the currently-open recipe (via the confirmed working path on the
 -- Recipes tab) and adds it to the Shopping List.
 local function AddRecipeToShoppingList()
@@ -1934,7 +2087,8 @@ end
 -- The list below marks each addon "(installed)" if it's currently loaded.
 local WORKSHOP_ADDONS = {
     { name = "HandyNotes: Dive Bar Front Crawl", folder = "HandyNotes_DiveBarCrawl" },
-    { name = "ItemWatch",                        folder = "ItemWatch" },
+    { name = "HandyNotes: Seeking the Soulstones", folder = "HandyNotes_SeekingTheSoulstones" },
+    { name = "ItemWatch & Shopping List",            folder = "ItemWatch" },
     { name = "Boomkin Buff Watcher",             folder = "BoomkinBuffWatcher" },
     { name = "Holiday Herald",                   folder = "HolidayHerald" },
 }
@@ -1989,7 +2143,7 @@ end
 
 local function BuildOptionsPanel()
     local panel = CreateFrame("Frame")
-    panel.name = "ItemWatch"
+    panel.name = "ItemWatch & Shopping List"
 
     -- Canvas category panels are NOT automatically wrapped in a scroll
     -- frame by Blizzard's Settings system the way fully-managed settings
@@ -2007,7 +2161,7 @@ local function BuildOptionsPanel()
 
     local title = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
-    title:SetText("ItemWatch")
+    title:SetText("ItemWatch & Shopping List")
 
     -- Scroll hint lives up here now, not next to the Visibility header
     -- further down - the sound preset list has grown enough that anyone
@@ -2120,7 +2274,16 @@ local function BuildOptionsPanel()
     visSubtitle:SetText("Tracking keeps running in the background even while hidden - nothing is lost.")
 
     local combatCheck = CreateFrame("CheckButton", "ItemWatchHideCombatCheck", content, "UICheckButtonTemplate")
-    combatCheck:SetPoint("TOPLEFT", visSubtitle, "BOTTOMLEFT", -2, -12)
+    local hideBoxCheck = CreateFrame("CheckButton", "ItemWatchHideBoxCheck", content, "UICheckButtonTemplate")
+    hideBoxCheck:SetPoint("TOPLEFT", visSubtitle, "BOTTOMLEFT", -2, -12)
+    _G["ItemWatchHideBoxCheckText"]:SetText("Hide the item box")
+    _G["ItemWatchHideBoxCheckText"]:SetTextColor(0.4, 1, 0.4)
+    hideBoxCheck:SetScript("OnClick", function(self)
+        SetBoxHidden(self:GetChecked())
+    end)
+    panel.hideBoxCheck = hideBoxCheck
+
+    combatCheck:SetPoint("TOPLEFT", hideBoxCheck, "BOTTOMLEFT", 0, -6)
     _G["ItemWatchHideCombatCheckText"]:SetText("Hide box during combat")
     _G["ItemWatchHideCombatCheckText"]:SetTextColor(0.4, 1, 0.4)
     combatCheck:SetScript("OnClick", function(self)
@@ -2157,6 +2320,47 @@ local function BuildOptionsPanel()
     end)
     panel.minimapCheck = minimapCheck
 
+    local hideShopCheck = CreateFrame("CheckButton", "ItemWatchHideShopCombatCheck", content, "UICheckButtonTemplate")
+    hideShopCheck:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 0, -6)
+    _G["ItemWatchHideShopCombatCheckText"]:SetText("Hide Shopping List during combat")
+    _G["ItemWatchHideShopCombatCheckText"]:SetTextColor(0.4, 1, 0.4)
+    hideShopCheck:SetScript("OnClick", function(self)
+        ItemWatchDB.hideShoppingInCombat = self:GetChecked() and true or false
+        UpdateShoppingListVisibility()
+    end)
+    panel.hideShopCheck = hideShopCheck
+
+    local resetBoxBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    resetBoxBtn:SetSize(220, 22)
+    resetBoxBtn:SetPoint("TOPLEFT", hideShopCheck, "BOTTOMLEFT", 4, -14)
+    resetBoxBtn:SetText("Reset box position and show it")
+    resetBoxBtn:SetScript("OnClick", function()
+        ResetBox()
+        print("|cff00ff00ItemWatch:|r box moved back to the center of the screen and shown.")
+    end)
+    resetBoxBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Lost your box?")
+        GameTooltip:AddLine("Puts the item box back in the center of the screen and unhides it if you'd hidden it.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    resetBoxBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    panel.resetBoxBtn = resetBoxBtn
+
+    local showShopBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    showShopBtn:SetSize(220, 22)
+    showShopBtn:SetPoint("TOPLEFT", resetBoxBtn, "BOTTOMLEFT", 0, -8)
+    showShopBtn:SetText("Show Shopping List")
+    showShopBtn:SetScript("OnClick", function() ShowShoppingList() end)
+    showShopBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Shopping List")
+        GameTooltip:AddLine("Reopens your Shopping List if you closed it. Same as typing /iw shopping.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    showShopBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    panel.showShopBtn = showShopBtn
+
     panel:SetScript("OnShow", function()
         for _, btn in ipairs(optionButtons) do
             if btn.choice and ItemWatchDB.selectedSound and btn.choice.name == ItemWatchDB.selectedSound.name then
@@ -2165,6 +2369,8 @@ local function BuildOptionsPanel()
                 btn:SetChecked(false)
             end
         end
+        hideBoxCheck:SetChecked(ItemWatchDB.boxHidden)
+        hideShopCheck:SetChecked(ItemWatchDB.hideShoppingInCombat)
         combatCheck:SetChecked(ItemWatchDB.hideInCombat)
         petBattleCheck:SetChecked(ItemWatchDB.hideInPetBattles)
         minimapCheck:SetChecked(not ItemWatchDB.minimapIcon.hide)
@@ -2189,6 +2395,8 @@ local function BuildOptionsPanel()
                   "Drag it from your bags straight onto the box. That's it - no commands needed." },
                 { "Tracking an item you don't have yet",
                   "Click the \"+\" on the box (or right-click empty space inside it). Paste a Wowhead link, type the item ID, or shift-click an item to fill the field automatically." },
+                { "Tracking what a vendor item costs",
+                  "Some vendors sell things for items instead of gold. Alt-click the vendor item and ItemWatch tracks the items it costs, with the goal set to the amount needed. Alt-click again for a second purchase and the goals add up. These items also count your bank and warband bank. You can turn that on or off for any item in its edit popup (left-click the icon)." },
                 { "Setting a goal and sound",
                   "Left-click any tracked item's icon to open its edit popup - set a goal amount and pick its own sound, or leave it on \"Use ItemWatch's global default.\"" },
                 { "ItemWatch's global default sound",
@@ -2198,9 +2406,9 @@ local function BuildOptionsPanel()
                 { "Linking or previewing an item",
                   "Shift-click a tracked icon to post it in chat. Ctrl-click previews equippable gear in the dressing room." },
                 { "Moving and resizing the box",
-                  "Drag the title bar to move it, drag the bottom-right corner to resize it. /iw lock keeps it in place." },
+                  "Drag the title bar to move it, drag the bottom-right corner to resize it. /iw lock keeps it in place. Lost it? Use \"Reset box position and show it\" under Visibility in these settings, or type /iw reset." },
                 { "The minimap button",
-                  "Left-click toggles the box, right-click opens these settings. It's fully compatible with minimap button tray addons like ElvUI, Dominos, and others." },
+                  "Left-click toggles the box, right-click opens these settings. It's fully compatible with minimap button tray addons." },
                 { "Hiding the box automatically",
                   "The Visibility section below can hide the box during combat or pet battles. Tracking keeps running in the background either way - nothing is lost." },
                 { "Prefer typing commands?",
@@ -2303,7 +2511,7 @@ local function BuildOptionsPanel()
             local aboutPanel, aboutContent = CreateScrollableSubcategory("About")
             local aboutTitle = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
             aboutTitle:SetPoint("TOPLEFT", 16, -16)
-            aboutTitle:SetText("ItemWatch")
+            aboutTitle:SetText("ItemWatch & Shopping List")
 
             local aboutBy = aboutContent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             aboutBy:SetPoint("TOPLEFT", aboutTitle, "BOTTOMLEFT", 0, -6)
@@ -2373,6 +2581,17 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.3.2",
+        highlights = {
+            "Fixed the box popping back up after combat or a pet battle when you had hidden it yourself. A box you hide now stays hidden until you show it again, and that survives /reload and logging out.",
+            "New \"Reset box position and show it\" button under Visibility in the settings (also /iw reset) - puts the box back in the center of the screen and unhides it, handy if the minimap button is hidden.",
+            "NEW: Alt-click a vendor item that is bought with items (cloth, ore, gems) and ItemWatch tracks those items for you, with the goal set to the amount needed. Alt-click again for a second purchase and the goals add up. Items added this way also count your bank and warband bank; any item can switch that on or off in its edit popup.",
+            "Added HandyNotes: Seeking the Soulstones to the NerdyBertie workshop list of other addons.",
+            "New \"Hide the item box\" checkbox under Visibility, plus /iw show and /iw hide commands.",
+            "New \"Show Shopping List\" button in the settings to reopen a list you closed (same as /iw shopping), and a \"Hide Shopping List during combat\" checkbox. It comes right back when combat ends and your list is never lost.",
+        },
+    },
     {
         version = "2.3.1",
         highlights = {
@@ -2584,6 +2803,7 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
 eventFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+eventFrame:RegisterEvent("MERCHANT_SHOW")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED") -- entering combat
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")  -- leaving combat
 eventFrame:RegisterEvent("PET_BATTLE_OPENING_START")
@@ -2656,7 +2876,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
             RefreshShoppingList()
             shoppingListFrame:ClearAllPoints()
             shoppingListFrame:SetPoint(sl.point or "CENTER", UIParent, sl.point or "CENTER", sl.x or 0, sl.y or -150)
-            shoppingListFrame:Show()
+            UpdateShoppingListVisibility()
         end
     elseif event == "BAG_UPDATE_DELAYED" then
         bagsReady = true
@@ -2664,15 +2884,19 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if ItemWatchDB.shoppingList.active and not ItemWatchDB.shoppingList.dismissed then
             RefreshShoppingList()
         end
+    elseif event == "MERCHANT_SHOW" then
+        ItemWatch_HookVendorButtons()
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         -- item data can arrive late from the server; refresh once it's in
         RefreshAll()
     elseif event == "PLAYER_REGEN_DISABLED" then
         inCombat = true
         UpdateBoxVisibility()
+        UpdateShoppingListVisibility()
     elseif event == "PLAYER_REGEN_ENABLED" then
         inCombat = false
         UpdateBoxVisibility()
+        UpdateShoppingListVisibility()
     elseif event == "PET_BATTLE_OPENING_START" then
         inPetBattle = true
         UpdateBoxVisibility()
@@ -2731,6 +2955,26 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         ItemWatchDB.locked = false
         if itemBox and itemBox.UpdateLockIcon then itemBox.UpdateLockIcon() end
         print("|cff00ff00ItemWatch:|r frames unlocked - drag them to move.")
+    elseif cmd == "vendorcost" then
+        local f = (GetMouseFoci and GetMouseFoci()[1]) or (GetMouseFocus and GetMouseFocus())
+        local fname = f and f.GetName and f:GetName()
+        print("|cff00ff00ItemWatch:|r vendor functions: GetMerchantItemCostInfo="..tostring(GetMerchantItemCostInfo ~= nil)
+            ..", GetMerchantItemCostItem="..tostring(GetMerchantItemCostItem ~= nil)
+            ..", tooltip hook="..tostring(TooltipDataProcessor ~= nil))
+        if fname and fname:match("^MerchantItem%d+ItemButton$") then
+            local costs = GetVendorItemCosts(f:GetID())
+            print("mouse is over "..fname.." (index "..tostring(f:GetID())..") - "..#costs.." item cost(s)")
+            for _, c in ipairs(costs) do print("  item "..c.id.." x"..c.amount) end
+        else
+            print("hover a vendor item with the mouse, then run this command again.")
+        end
+    elseif cmd == "show" then
+        SetBoxHidden(false)
+    elseif cmd == "hide" then
+        SetBoxHidden(true)
+    elseif cmd == "reset" then
+        ResetBox()
+        print("|cff00ff00ItemWatch:|r box moved back to the center of the screen and shown.")
     elseif cmd == "addrecipe" then
         AddRecipeToShoppingList()
     elseif cmd == "buttoncheck" then
@@ -2746,17 +2990,7 @@ SlashCmdList["ITEMWATCH"] = function(msg)
             ..", schematicOK="..tostring(ok)
             ..", reagentSlots="..tostring(sch and sch.reagentSlotSchematics and #sch.reagentSlotSchematics))
     elseif cmd == "shopping" then
-        local sl = ItemWatchDB.shoppingList
-        if #sl.recipes == 0 then
-            print("|cff00ff00ItemWatch:|r your Shopping List is empty - open a recipe and click \"Add to Shopping List.\"")
-        else
-            sl.active = true
-            sl.dismissed = false
-            RefreshShoppingList()
-            shoppingListFrame:ClearAllPoints()
-            shoppingListFrame:SetPoint(sl.point or "CENTER", UIParent, sl.point or "CENTER", sl.x or 0, sl.y or -150)
-            shoppingListFrame:Show()
-        end
+        ShowShoppingList()
     elseif cmd == "hoverdump" then
         -- Complements /fstack: that shows frame NAMES under the cursor,
         -- this reads frame DATA by direct reference instead - works even
@@ -3023,6 +3257,8 @@ SlashCmdList["ITEMWATCH"] = function(msg)
         print("/iw list - list tracked items")
         print("/iw clear - remove ALL tracked items (asks to confirm)")
         print("/iw lock / unlock - lock or unlock frame positions")
+        print("/iw show / hide - show or hide the box (it stays that way until you change it)")
+        print("/iw reset - move the box back to the center of the screen and show it")
         print("/iw goal <itemID> <amount> - set a target (shows count/goal, turns green when met)")
         print("/iw goal <itemID> clear - remove the goal")
         print("/iw sound <itemID> on|off - toggle the goal-reached sound for that item")
