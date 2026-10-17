@@ -5,8 +5,8 @@ ItemWatch & Shopping List
 
 A World of Warcraft addon for tracking specific item counts — a movable,
 resizable box you drag items into, with goals, per-item sounds, and a
-minimap button. Now also builds a shopping list straight from any
-crafting recipe.
+minimap button. Also builds a shopping list straight from any
+crafting recipe, and can track the items a vendor wants in trade.
 
 Built for farming, collecting, or any situation where you need to keep an
 eye on an exact item count without repeatedly opening your bags.
@@ -32,7 +32,9 @@ eye on an exact item count without repeatedly opening your bags.
   House are flagged "[vendor/earned only]" instead of silently
   vanishing. The window is movable, resizable, lockable, scrolls with
   the mouse wheel, persists across logout/reload, and has a "Clear all"
-  button (it asks first) to start over.
+  button (it asks first) to start over. Pulled away by a dungeon queue?
+  Close it and your list is kept - a "Show Shopping List" button in the
+  settings (or `/iw shopping`) brings it right back.
 - **Quick-Add popup** — track items you don't have yet by pasting a
   Wowhead link, typing an item ID, or shift-clicking an item straight
   into the field. Set a goal and sound in one step.
@@ -45,16 +47,29 @@ eye on an exact item count without repeatedly opening your bags.
   list.
 - **Shift-click to link, Ctrl-click to preview** — tracked icons behave
   like real item icons for chat links and equippable-gear previews.
+- **Vendor purchase tracking** — some vendors sell things for items
+  (cloth, ore, gems) instead of gold. Alt-click the vendor item and
+  ItemWatch tracks the items it costs, with each goal set to the amount
+  needed. Alt-click again for a second purchase and the goals add up.
+  Hover a vendor item and the tooltip tells you if Alt-click is
+  available for it.
 - **Character-specific tracking** — each character keeps its own list.
-  The main Item Box is deliberately bags + reagent bag only, real-time,
-  so counts are always exactly accurate (no bank/warband padding the
-  number). The Shopping List is the one place that does check your bank
-  and warband, since it's answering a different question - "do I still
-  need to go buy this."
+  The main Item Box counts bags and the reagent bag, real-time, so
+  counts are exactly what you're carrying. Any item can also be set to
+  count your bank and warband bank (a checkbox in its edit popup), and
+  items added from a vendor start that way. The Shopping List always
+  checks your bank and warband, since it's answering a different
+  question - "do I still need to go buy this."
 - **Blizzard Edit Mode support** for the box.
-- **Combat / pet battle visibility toggles** — hide the box automatically
-  if you'd rather it stay out of the way. Tracking keeps running in the
-  background regardless.
+- **Hide it when you want to** — hide the box with the minimap button,
+  a checkbox in the settings, or `/iw hide`. It stays hidden through
+  combat, reloads and logging out. There are also combat and pet battle
+  toggles to hide it automatically, and the Shopping List can hide
+  during combat too. Tracking keeps running in the background
+  regardless.
+- **Lost it? Reset it** — a "Reset box position and show it" button in
+  the settings (or `/iw reset`) puts the box back in the center of your
+  screen and unhides it.
 - **Minimap button** — left-click to show/hide the box, right-click for
   settings. Built on LibDataBroker + LibDBIcon, so it's automatically
   compatible with minimap button "tray" addons.
@@ -113,6 +128,14 @@ eye on an exact item count without repeatedly opening your bags.
    X only hides it (`/iw shopping` brings it back); "Clear all" empties
    the list.
 
+**Tracking what a vendor item costs:**
+1. Open a vendor that sells things for items instead of gold.
+2. Hover the item you want. If it costs items, the tooltip says
+   "Alt-click: Track the items used to buy this in ItemWatch."
+3. Alt-click it. The items it costs appear in the box with goals set
+   (and they count your bank and warband bank too).
+4. Alt-click again if you want more than one.
+
 ### Commands
 
 | Command | Description |
@@ -121,6 +144,9 @@ eye on an exact item count without repeatedly opening your bags.
 | `/iw remove [itemID]` | Stop tracking an item |
 | `/iw list` | List everything currently tracked |
 | `/iw clear` | Remove all tracked items (asks to confirm) |
+| `/iw show` | Show the box |
+| `/iw hide` | Hide the box (it stays hidden until you show it) |
+| `/iw reset` | Move the box back to the center of the screen and show it |
 | `/iw lock` | Lock the box in place |
 | `/iw unlock` | Unlock the box so you can move/resize it |
 | `/iw goal [itemID] [amount]` | Set a target amount for an item |
@@ -139,8 +165,8 @@ needed (default Blizzard bag UI only).
 
 Find ItemWatch's settings under Options > AddOns > ItemWatch in-game, or
 type `/iw options`, or right-click the minimap button. From there you can
-set per-item sounds, combat/pet-battle visibility toggles, and show/hide
-the minimap button.
+set per-item sounds, hide or reset the box, choose combat/pet-battle
+visibility, reopen the Shopping List, and show/hide the minimap button.
 
 The settings panel also has an expandable "+" with sub-pages: **Helpful
 Information** (how everything works), **Shopping List** (how the
@@ -216,5 +242,6 @@ If you find ItemWatch useful, consider supporting me on
 [Ko-fi](https://ko-fi.com/nerdybertie) — totally optional, but always
 appreciated! You can also find me on
 [Twitch](https://www.twitch.tv/nerdybertie),
+[TikTok](https://www.tiktok.com/@nerdybertie),
 [YouTube](https://www.youtube.com/@nerdybertie), or
 [Discord](https://discord.gg/bXbMR6rzcF) - NerdyBertie's Tinker Workshop
