@@ -1,5 +1,18 @@
 # ItemWatch
 
+## v2.3.4
+
+### Fixed
+- A rare repeat of the "goal reached" sound: the check that a goal is no longer met now only counts real bag changes, not item-info updates from the game.
+- The Add to Shopping List button on the crafting window now always appears, even if the crafting window loaded before ItemWatch.
+- Reloading during combat or a pet battle now starts the box in the right state.
+- Shopping List icons now fill in on their own instead of staying as question marks.
+- A custom sound ID now shows as selected (and refills its box) when you reopen settings.
+
+### Changed
+- Updated the help text about bank counting.
+- Removed leftover debug messages and the /iw craftdebug developer command.
+
 ## v2.3.3
 
 ### Fixed

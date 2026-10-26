@@ -454,7 +454,7 @@ local lowCountStreak = {} -- debounce: require 2 consecutive low readings
                           -- transient bad read (e.g. during a zone-load
                           -- hiccup) shouldn't be enough to wipe an
                           -- already-earned goal and risk a false re-ding
-local function RefreshFrame(entry)
+local function RefreshFrame(entry, countLow)
     local f = frames[entry.id]
     if not f then return end
 
@@ -483,7 +483,7 @@ local function RefreshFrame(entry)
             end
         else
             f.count:SetTextColor(1, 1, 1) -- back to white if below goal again
-            if bagsReady then
+            if bagsReady and countLow then
                 lowCountStreak[entry.id] = (lowCountStreak[entry.id] or 0) + 1
                 if lowCountStreak[entry.id] >= 2 then
                     entry.goalReached = false
@@ -496,9 +496,9 @@ local function RefreshFrame(entry)
     end
 end
 
-local function RefreshAll()
+local function RefreshAll(countLow)
     for _, entry in ipairs(ItemWatchDB.items) do
-        RefreshFrame(entry)
+        RefreshFrame(entry, countLow)
     end
 end
 
@@ -963,7 +963,6 @@ local function CreateQuickAddPopup()
         local itemID = ParseItemIDInput(rawText)
         if not itemID then
             statusText:SetText("Enter a valid item ID or Wowhead link.")
-            print("|cffff8800ItemWatch debug:|r raw field text was: ["..tostring(rawText).."] (length "..#(rawText or "")..")")
             return
         end
 
@@ -2373,6 +2372,14 @@ local function BuildOptionsPanel()
                 btn:SetChecked(false)
             end
         end
+        -- A saved custom FileDataID has no preset button of its own, so
+        -- re-select the Custom option and refill its box after a reload
+        local saved = ItemWatchDB.selectedSound
+        if saved and saved.type == "file" and saved.id and (saved.name or ""):find("^Custom FileDataID") then
+            customBtn.choice = saved
+            customBtn:SetChecked(true)
+            customBox:SetText(tostring(saved.id))
+        end
         hideBoxCheck:SetChecked(ItemWatchDB.boxHidden)
         hideShopCheck:SetChecked(ItemWatchDB.hideShoppingInCombat)
         combatCheck:SetChecked(ItemWatchDB.hideInCombat)
@@ -2425,8 +2432,8 @@ local function BuildOptionsPanel()
 
             -- Practical Uses
             local practicalSections = {
-                { "Real-time, bags only - on purpose",
-                  "Some addons also track your bank, warbank, and guild bank. ItemWatch doesn't - it only watches what's actually in your bags right now. That's deliberate: the number you see is always exactly accurate, with nothing sitting somewhere else quietly padding the count." },
+                { "Real-time, bags only - by default",
+                  "Some addons also track your bank, warbank, and guild bank. ItemWatch watches what's actually in your bags right now. That's deliberate: the number you see is always exactly accurate, with nothing sitting somewhere else quietly padding the count. The one exception is items you added with Alt-click at a vendor, or any item where you tick \"Also count bank and warband bank\" in its edit window - those include your bank and warband bank." },
                 { "Farming without the bag-checking",
                   "The obvious one: crafting materials. If you need a specific amount for something you're making right now, track it, set the goal, and glance at the box instead of stopping to open your bags every few kills." },
                 { "Building an Auction House shopping list",
@@ -2585,6 +2592,17 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.3.4",
+        highlights = {
+            "Fixed a rare false \"goal reached\" sound repeating: the check that a goal is no longer met now only counts real bag changes, not item-info updates from the game.",
+            "The Add to Shopping List button on the crafting window now always appears, even if the crafting window loaded before ItemWatch.",
+            "Reloading in combat or a pet battle now starts the box in the right state.",
+            "Shopping List icons now fill in on their own instead of staying as question marks.",
+            "A custom sound ID now shows as selected (and refills its box) when you reopen settings.",
+            "Updated the help text about bank counting, and removed leftover debug messages and the /iw craftdebug developer command.",
+        },
+    },
     {
         version = "2.3.3",
         highlights = {
@@ -2864,6 +2882,15 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
             oldList.craftQuantity = nil
         end
         if #oldList.recipes == 0 then oldList.active = false end
+        -- Start in the right state if we loaded mid-combat or mid-pet-battle
+        -- (e.g. a /reload during a fight)
+        inCombat = InCombatLockdown() and true or false
+        inPetBattle = (C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle()) and true or false
+        -- If the crafting window's addon loaded before ItemWatch, we missed
+        -- its ADDON_LOADED, so build the Add button now
+        if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_Professions") then
+            CreateRecipeAddButton()
+        end
         itemBox = CreateItemBox()
         quickAddFrame = CreateQuickAddPopup()
         itemEditFrame = CreateItemEditPopup()
@@ -2890,15 +2917,21 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         end
     elseif event == "BAG_UPDATE_DELAYED" then
         bagsReady = true
-        RefreshAll()
+        RefreshAll(true) -- only real bag changes count toward the "goal no longer met" check
         if ItemWatchDB.shoppingList.active and not ItemWatchDB.shoppingList.dismissed then
             RefreshShoppingList()
         end
     elseif event == "MERCHANT_SHOW" then
         ItemWatch_HookVendorButtons()
     elseif event == "GET_ITEM_INFO_RECEIVED" then
-        -- item data can arrive late from the server; refresh once it's in
-        RefreshAll()
+        -- item data can arrive late from the server; refresh just that item
+        -- (and the Shopping List, so its icons fill in) once it's in
+        local entry = arg1 and FindEntry(arg1)
+        if entry then RefreshFrame(entry) end
+        if ItemWatchDB and ItemWatchDB.shoppingList and ItemWatchDB.shoppingList.active
+                and not ItemWatchDB.shoppingList.dismissed and RefreshShoppingList then
+            RefreshShoppingList()
+        end
     elseif event == "PLAYER_REGEN_DISABLED" then
         inCombat = true
         UpdateBoxVisibility()
@@ -3042,181 +3075,6 @@ SlashCmdList["ITEMWATCH"] = function(msg)
             current = okParent and parent or nil
         end
         print("|cff00ffffItemWatch hoverdump:|r done.")
-    elseif cmd == "craftdebug" then
-        -- Diagnostic tool: open a recipe in the Professions window first,
-        -- then run this. Tries a few known ways to find the currently
-        -- selected recipe and its reagent schematic, and reports exactly
-        -- what worked and what didn't - Blizzard's crafting UI internals
-        -- have shifted between expansions, so this checks reality instead
-        -- of assuming any one path is still correct.
-        print("|cff00ffffItemWatch craftdebug:|r starting diagnostic...")
-
-        -- The crafting order window has been confirmed NOT to live inside
-        -- ProfessionsFrame, so rather than guess another specific frame
-        -- name, scan every global frame currently loaded for anything
-        -- with "Order" in its name that's actually shown right now -
-        -- this finds the real name empirically instead of guessing again.
-        print("|cff00ffff  Scanning for shown frames with 'Order' in the name...")
-        local foundAny = false
-        for name, obj in pairs(_G) do
-            if type(name) == "string" and name:lower():find("order") and type(obj) == "table"
-               and obj.IsShown and type(obj.IsShown) == "function" then
-                local ok, shown = pcall(obj.IsShown, obj)
-                if ok and shown then
-                    print("|cff00ff00    FOUND (shown): "..name)
-                    foundAny = true
-                end
-            end
-        end
-        if not foundAny then
-            print("|cffff8800    No shown frame with 'Order' in its name was found.")
-        end
-
-        if not ProfessionsFrame then
-            print("|cffff8800  ProfessionsFrame doesn't exist - are you sure this client has it?")
-            return
-        end
-        print("|cff00ffff  ProfessionsFrame exists. Shown: |r"..tostring(ProfessionsFrame:IsShown()))
-
-        local recipeID = nil
-        local foundVia = nil
-
-        -- Confirmed via scan: the crafting order window is its own frame,
-        -- ProfessionsCustomerOrdersFrame, not nested inside ProfessionsFrame
-        -- at all. Rather than guess the exact nesting inside it, recursively
-        -- search its children for anything with recipe data, bounded to a
-        -- shallow depth so it doesn't take forever.
-        if ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame:IsShown() then
-            print("|cff00ff00  ProfessionsCustomerOrdersFrame is shown - searching its children...")
-            local seen = {}
-            local function searchForRecipe(frame, depth, path)
-                if depth > 5 or type(frame) ~= "table" or seen[frame] then return nil end
-                seen[frame] = true
-
-                -- Print this frame's own name/type if it has one, so we
-                -- can see the actual structure even if we don't find a
-                -- match - useful for figuring out the next guess.
-                local okName, fname = pcall(function() return frame.GetName and frame:GetName() end)
-                if depth <= 2 and okName and fname then
-                    print("|cff888888    (depth "..depth..") "..path.." = "..fname)
-                end
-
-                local ok, schematic = pcall(function() return frame.recipeSchematic end)
-                if ok and type(schematic) == "table" and schematic.recipeID then
-                    return schematic.recipeID, path.." (via .recipeSchematic.recipeID)"
-                end
-                -- Also check for a bare .recipeID directly on this object
-                local ok2, directID = pcall(function() return frame.recipeID end)
-                if ok2 and type(directID) == "number" then
-                    return directID, path.." (via .recipeID directly)"
-                end
-
-                if frame.GetChildren then
-                    local okC, children = pcall(function() return { frame:GetChildren() } end)
-                    if okC then
-                        for i, child in ipairs(children) do
-                            local foundID, foundPath = searchForRecipe(child, depth + 1, path.."/child"..i)
-                            if foundID then return foundID, foundPath end
-                        end
-                    end
-                end
-                return nil
-            end
-            local foundID, foundPath = searchForRecipe(ProfessionsCustomerOrdersFrame, 0, "ProfessionsCustomerOrdersFrame")
-            if foundID then
-                recipeID = foundID
-                foundVia = foundPath
-            else
-                print("|cffff8800  Searched but didn't find a recipeSchematic or recipeID anywhere in its children.")
-            end
-        end
-
-        local craftingShown = ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage:IsShown()
-        local ordersShown = ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage:IsShown()
-        print("|cff00ffff  CraftingPage shown: "..tostring(craftingShown)..
-              " | OrdersPage shown: "..tostring(ordersShown))
-
-        if recipeID then
-            -- already found via the ProfessionsCustomerOrdersFrame search
-            -- above, skip these older/fallback checks entirely
-        elseif ordersShown then
-            -- Place Crafting Order window - a different frame path than
-            -- the regular Recipes tab. Trying a few plausible nestings
-            -- since this hasn't been confirmed working yet.
-            local attempts = {
-                { "OrdersPage.OrderView.OrderInfo.SchematicForm", function()
-                    return ProfessionsFrame.OrdersPage.OrderView
-                       and ProfessionsFrame.OrdersPage.OrderView.OrderInfo
-                       and ProfessionsFrame.OrdersPage.OrderView.OrderInfo.SchematicForm
-                       and ProfessionsFrame.OrdersPage.OrderView.OrderInfo.SchematicForm.recipeSchematic
-                       and ProfessionsFrame.OrdersPage.OrderView.OrderInfo.SchematicForm.recipeSchematic.recipeID
-                end },
-                { "OrdersPage.OrderView.SchematicForm", function()
-                    return ProfessionsFrame.OrdersPage.OrderView
-                       and ProfessionsFrame.OrdersPage.OrderView.SchematicForm
-                       and ProfessionsFrame.OrdersPage.OrderView.SchematicForm.recipeSchematic
-                       and ProfessionsFrame.OrdersPage.OrderView.SchematicForm.recipeSchematic.recipeID
-                end },
-                { "OrdersPage.SchematicForm", function()
-                    return ProfessionsFrame.OrdersPage.SchematicForm
-                       and ProfessionsFrame.OrdersPage.SchematicForm.recipeSchematic
-                       and ProfessionsFrame.OrdersPage.SchematicForm.recipeSchematic.recipeID
-                end },
-            }
-            for _, attempt in ipairs(attempts) do
-                local label, fn = attempt[1], attempt[2]
-                local ok, result = pcall(fn)
-                if ok and result then
-                    recipeID = result
-                    foundVia = "OrdersPage: "..label
-                    break
-                end
-            end
-        elseif craftingShown then
-            -- Regular Recipes tab
-            local ok1, result1 = pcall(function()
-                return ProfessionsFrame.CraftingPage.SchematicForm
-                   and ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic
-                   and ProfessionsFrame.CraftingPage.SchematicForm.recipeSchematic.recipeID
-            end)
-            if ok1 and result1 then
-                recipeID = result1
-                foundVia = "CraftingPage.SchematicForm.recipeSchematic.recipeID"
-            end
-        else
-            print("|cffff8800  Neither CraftingPage nor OrdersPage is currently shown.")
-        end
-
-        if not recipeID then
-            print("|cffff8800  Couldn't find a selected recipe through any known path.")
-            print("|cffff8800  Make sure a recipe is actually open/selected, not just the profession window.")
-            return
-        end
-
-        print("|cff00ff00  Found recipe ID: "..recipeID.." (via "..foundVia..")")
-
-        local okS, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
-        if not okS or not schematic then
-            print("|cffff8800  GetRecipeSchematic call failed or returned nothing.")
-            return
-        end
-
-        print("|cff00ff00  Recipe name: "..tostring(schematic.name))
-        print("|cff00ff00  Reagent slots found: "..tostring(schematic.reagentSlotSchematics and #schematic.reagentSlotSchematics or 0))
-
-        if schematic.reagentSlotSchematics then
-            for i, slot in ipairs(schematic.reagentSlotSchematics) do
-                local reagentType = slot.reagentType -- 1=required/basic, 2=optional/finishing, etc.
-                local qtyRequired = slot.quantityRequired
-                local itemID = slot.reagents and slot.reagents[1] and slot.reagents[1].itemID
-                local itemName = itemID and (GetItemInfo(itemID) or ("item #"..itemID)) or "unknown"
-                local bindType = itemID and select(14, GetItemInfo(itemID))
-                local bopLabel = (bindType == 1) and "BoP (vendor/earned only)" or "not BoP (AH-purchasable)"
-                print(string.format("|cff00ffff    Slot %d: %s | qty needed: %s | reagentType: %s | itemID: %s | %s",
-                    i, itemName, tostring(qtyRequired), tostring(reagentType), tostring(itemID), bopLabel))
-            end
-        end
-        print("|cff00ffffItemWatch craftdebug:|r done.")
     elseif cmd == "list" then
         if #ItemWatchDB.items == 0 then
             print("|cffff8800ItemWatch:|r no items tracked.")
@@ -3243,8 +3101,6 @@ SlashCmdList["ITEMWATCH"] = function(msg)
     elseif cmd == "options" or cmd == "config" then
         OpenItemWatchOptions()
     elseif cmd == "whatsnew" then
-        local currentVersion = GetAddonVersion()
-        print("|cff00ffffItemWatch debug:|r currentVersion=["..tostring(currentVersion).."] lastSeenVersion=["..tostring(ItemWatchDB.lastSeenVersion).."]")
         if whatsNewFrame then
             whatsNewFrame:Show()
         end
