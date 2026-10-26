@@ -1,5 +1,10 @@
 # ItemWatch
 
+## v2.3.5
+
+### Added
+- New "Only show what I still need to buy" checkbox at the top of the Shopping List. Turn it on and reagents you already have enough of are hidden, leaving just what's left to buy. Raise a recipe's quantity and a hidden reagent comes back as soon as you're short on it. It's off by default.
+
 ## v2.3.4
 
 ### Fixed

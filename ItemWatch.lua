@@ -24,6 +24,7 @@ local defaults = {
         point = "CENTER", x = 0, y = -150,
         width = 260, height = 400,
         locked = false,
+        onlyNeeded = false,  -- true = hide reagents you already have enough of
     },
 }
 
@@ -1339,15 +1340,17 @@ end
 -- ItemWatch should choose for the player.
 local function CreateShoppingListWindow()
     local panel = CreateFrame("Frame", "ItemWatchShoppingList", UIParent, "BackdropTemplate")
-    panel:SetSize(ItemWatchDB.shoppingList.width or 260, ItemWatchDB.shoppingList.height or 400)
+    -- Narrowest the window can be before its headings and checkbox label get clipped
+    local MIN_LIST_WIDTH = 235
+    panel:SetSize(math.max(MIN_LIST_WIDTH, ItemWatchDB.shoppingList.width or 260), ItemWatchDB.shoppingList.height or 400)
     panel:SetFrameStrata("HIGH")
     panel:SetMovable(true)
     panel:SetResizable(true)
     panel:SetClampedToScreen(true)
     if panel.SetResizeBounds then
-        panel:SetResizeBounds(200, 200)
+        panel:SetResizeBounds(MIN_LIST_WIDTH, 200)
     else
-        panel:SetMinResize(200, 200) -- older API, kept for compatibility
+        panel:SetMinResize(MIN_LIST_WIDTH, 200) -- older API, kept for compatibility
     end
     panel:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -1438,6 +1441,27 @@ local function CreateShoppingListWindow()
     end)
     panel.scroll = scroll
     panel.content = content
+
+    -- Optional filter: hide reagents you already have enough of, so the
+    -- list shows only what's left to buy
+    local onlyNeededCheck = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
+    onlyNeededCheck:SetSize(22, 22)
+    onlyNeededCheck:SetPoint("TOPLEFT", content, "TOPLEFT", -2, 0)
+    local onlyNeededLabel = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    onlyNeededLabel:SetPoint("LEFT", onlyNeededCheck, "RIGHT", 2, 0)
+    onlyNeededLabel:SetText("Only show what I need to buy")
+    onlyNeededCheck:SetScript("OnClick", function(self)
+        ItemWatchDB.shoppingList.onlyNeeded = self:GetChecked() and true or false
+        if RefreshShoppingList then RefreshShoppingList() end
+    end)
+    onlyNeededCheck:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Only show what I still need to buy")
+        GameTooltip:AddLine("Hides reagents you already have enough of. If you raise a recipe's quantity, a hidden reagent comes back as soon as you're short on it.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    onlyNeededCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    panel.onlyNeededCheck = onlyNeededCheck
 
     local recipesHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     recipesHeader:SetTextColor(1, 0.82, 0)
@@ -1636,7 +1660,9 @@ function RefreshShoppingList()
     if not width or width < 50 then width = (data.width or 260) - 12 end
     content:SetWidth(width)
 
-    local yOffset = 0
+    local onlyNeeded = ItemWatchDB.shoppingList.onlyNeeded and true or false
+    f.onlyNeededCheck:SetChecked(onlyNeeded)
+    local yOffset = -24 -- room for the "only show what I still need" checkbox
 
     -- Recipe list
     f.recipesHeader:ClearAllPoints()
@@ -1677,7 +1703,9 @@ function RefreshShoppingList()
     local merged, recipesWithOptional = BuildMergedReagents()
     local allSatisfied = true
 
-    for i, reagent in ipairs(merged) do
+    f.totalsHeader:SetText(onlyNeeded and "Still to buy" or "Everything you need")
+    local shown = 0
+    for _, reagent in ipairs(merged) do
         -- Unlike the main Item Box (deliberately bags + reagent bag only,
         -- for an always-exactly-accurate live count), the Shopping List is
         -- answering a different question - "do I still need to go buy
@@ -1686,6 +1714,12 @@ function RefreshShoppingList()
         local satisfied = have >= reagent.needed
         if not satisfied then allSatisfied = false end
         local shortfall = math.max(0, reagent.needed - have)
+
+        if onlyNeeded and satisfied then
+            -- already have enough: skip the row (it still counts toward "All set!")
+        else
+        shown = shown + 1
+        local i = shown
 
         local name = reagent.name or GetItemInfo(reagent.itemID) or ("item #"..reagent.itemID)
         local text = name.." ("..have.."/"..reagent.needed..")"
@@ -1725,7 +1759,12 @@ function RefreshShoppingList()
         end
         w.frame:Show()
         yOffset = yOffset - rowHeight - ROW_GAP
+        end
     end
+
+    -- Nothing left to buy: no need for a "Still to buy" heading over an empty
+    -- list. It comes straight back once something becomes needed.
+    f.totalsHeader:SetShown(not (onlyNeeded and shown == 0))
 
     if recipesWithOptional > 0 then
         yOffset = yOffset - 8
@@ -1750,7 +1789,7 @@ function RefreshShoppingList()
     if f.scroll:GetVerticalScroll() > maxScroll then f.scroll:SetVerticalScroll(maxScroll) end
 
     if allSatisfied and #merged > 0 then
-        f.statusText:SetText("All set!")
+        f.statusText:SetText("All set - nothing left to buy!")
         f.statusText:Show()
     else
         f.statusText:Hide()
@@ -2592,6 +2631,12 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.3.5",
+        highlights = {
+            "NEW: \"Only show what I still need to buy\" checkbox at the top of the Shopping List. Turn it on and reagents you already have enough of are hidden, leaving just what's left to buy. Raise a recipe's quantity and a hidden reagent comes back as soon as you're short on it. It's off by default.",
+        },
+    },
     {
         version = "2.3.4",
         highlights = {
