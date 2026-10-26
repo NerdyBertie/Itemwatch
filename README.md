@@ -34,7 +34,10 @@ eye on an exact item count without repeatedly opening your bags.
   the mouse wheel, persists across logout/reload, and has a "Clear all"
   button (it asks first) to start over. Pulled away by a dungeon queue?
   Close it and your list is kept - a "Show Shopping List" button in the
-  settings (or `/iw shopping`) brings it right back.
+  settings (or `/iw shopping`) brings it right back. Tick "Only show what
+  I need to buy" to hide the reagents you already have enough of, so the
+  list shows just what's left to shop for. A hidden reagent comes back
+  the moment you're short on it, like when you raise a recipe's quantity.
 - **Quick-Add popup** — track items you don't have yet by pasting a
   Wowhead link, typing an item ID, or shift-clicking an item straight
   into the field. Set a goal and sound in one step.
@@ -127,6 +130,8 @@ eye on an exact item count without repeatedly opening your bags.
    just leave it open. It'll still be there if you log out mid-farm. The
    X only hides it (`/iw shopping` brings it back); "Clear all" empties
    the list.
+6. Want just the shopping part? Tick "Only show what I need to buy" at the
+   top of the list to hide what you already have enough of.
 
 **Tracking what a vendor item costs:**
 1. Open a vendor that sells things for items instead of gold.
