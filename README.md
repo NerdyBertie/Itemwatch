@@ -89,7 +89,7 @@ eye on an exact item count without repeatedly opening your bags.
   (the ones you have installed are marked).
 - All the original `/iw` slash commands still work, unchanged — the box
   and popups are additional ways in, not replacements.
-- Lightweight — event-driven, no polling.
+- Lightweight — built around game events, so it does almost nothing while you’re not using it.
 
 ## Installation
 
