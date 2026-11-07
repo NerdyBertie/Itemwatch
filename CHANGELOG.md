@@ -1,5 +1,13 @@
 # ItemWatch
 
+## v2.3.6
+
+### Added
+- The NerdyBertie page in Options > AddOns now lists Pinkies Up!, a tea-sipping fish who says grats for every achievement.
+
+### Fixed
+- If a built-in game sound (like Achievement Ding) doesn't exist on your version of the game, ItemWatch now plays the default sound instead of staying silent.
+
 ## v2.3.5
 
 ### Added

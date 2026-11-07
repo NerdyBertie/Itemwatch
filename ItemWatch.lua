@@ -69,7 +69,10 @@ local function PlayGoalSound(entry)
         -- Raw numeric Sound Kit ID. PlaySound() has accepted numeric IDs
         -- directly since patch 7.3.0 (this replaced the older, now
         -- unreliable PlaySoundKitID function).
-        PlaySound(sel.id, "Master")
+        -- If this game version doesn't have that sound, PlaySound reports
+        -- that it won't play - use the default sound instead of silence
+        local willPlay = PlaySound(sel.id, "Master")
+        if not willPlay then PlaySoundFile(558132, "Master") end
     elseif sel.type == "file" and sel.id then
         PlaySoundFile(sel.id, "Master")
     end
@@ -2133,6 +2136,7 @@ local WORKSHOP_ADDONS = {
     { name = "ItemWatch & Shopping List",            folder = "ItemWatch" },
     { name = "Boomkin Buff Watcher",             folder = "BoomkinBuffWatcher" },
     { name = "Holiday Herald",                   folder = "HolidayHerald" },
+    { name = "Pinkies Up!",                      folder = "PinkiesUp" },
 }
 
 local function GetBrandCategory()
@@ -2305,6 +2309,14 @@ local function BuildOptionsPanel()
     testBtn:SetPoint("TOPLEFT", lastButton, "BOTTOMLEFT", 4, -20)
     testBtn:SetText("Test Sound")
     testBtn:SetScript("OnClick", function() PlayGoalSound() end)
+
+    -- Heads-up for players on other versions of the game
+    local soundNote = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    soundNote:SetPoint("LEFT", testBtn, "RIGHT", 10, 0)
+    soundNote:SetWidth(380)
+    soundNote:SetJustifyH("LEFT")
+    soundNote:SetWordWrap(true)
+    soundNote:SetText("Some sounds may not play on WoW Forever. If one is silent, pick a different one.")
 
     -- Visibility section
     local visTitle = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -2631,6 +2643,13 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.3.6",
+        highlights = {
+            "The NerdyBertie page in Options > AddOns now lists Pinkies Up!, a tea-sipping fish who says grats for every achievement.",
+            "If a built-in game sound (like Achievement Ding) doesn't exist on your version of the game, ItemWatch now plays the default sound instead of staying silent.",
+        },
+    },
     {
         version = "2.3.5",
         highlights = {
