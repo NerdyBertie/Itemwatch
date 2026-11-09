@@ -1,5 +1,10 @@
 # ItemWatch
 
+## v2.3.7
+
+### Added
+- The NerdyBertie page in Options > AddOns now lists Chum Chimes, a friendly chime when guildies or friends are in your zone or right near you.
+
 ## v2.3.6
 
 ### Added

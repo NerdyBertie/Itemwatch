@@ -2137,6 +2137,7 @@ local WORKSHOP_ADDONS = {
     { name = "Boomkin Buff Watcher",             folder = "BoomkinBuffWatcher" },
     { name = "Holiday Herald",                   folder = "HolidayHerald" },
     { name = "Pinkies Up!",                      folder = "PinkiesUp" },
+    { name = "Chum Chimes",                      folder = "ChumChimes" },
 }
 
 local function GetBrandCategory()
@@ -2643,6 +2644,12 @@ end
 -- popup below automatically features whichever one is first in the list
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
+    {
+        version = "2.3.7",
+        highlights = {
+            "The NerdyBertie page in Options > AddOns now lists Chum Chimes, a friendly chime when guildies or friends are in your zone or right near you.",
+        },
+    },
     {
         version = "2.3.6",
         highlights = {

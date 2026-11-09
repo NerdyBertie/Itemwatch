@@ -221,10 +221,54 @@ option, so you can use any sound file ID you can find (try
   default bag UI. If you use a bag-replacement addon, use `/iw add [itemID]` or the Quick-Add
   popup instead.
 
+## Troubleshooting
+
+**I can't see the box.**
+1. Type `/iw show`.
+2. Still nothing? Type `/iw reset`. It puts the box back in the center of
+   your screen and unhides it.
+3. Check Options > AddOns > ItemWatch to make sure "Hide the item box" and
+   the combat/pet battle options aren't ticked.
+
+**My Shopping List disappeared.**
+Closing it with the X only hides it. Type `/iw shopping` or click "Show
+Shopping List" in the settings to bring it back.
+
+**There's no "Add to Shopping List" button.**
+1. Open a profession and go to the Recipes tab.
+2. Select a recipe. The button appears on the recipe's page.
+3. If it still doesn't show, type `/reload` and try again.
+
+**The count looks too low.**
+The main box counts what's in your bags and reagent bag. To include your
+bank and warband bank, left-click the item in the box and tick "Also count
+bank and warband bank." The Shopping List always counts your bank and
+warband.
+
+**I don't hear the goal sound.**
+1. Click "Test Sound" in the settings. If you hear nothing, check your game
+   sound volume.
+2. Make sure the item's sound isn't muted (left-click the item in the box).
+3. Some built-in sounds may not exist on WoW Forever. If one is silent,
+   pick a different one.
+
+**Alt-clicking a vendor item says it doesn't cost any items.**
+That vendor sells it for gold. Alt-click only works on things bought with
+items (cloth, ore, gems).
+
+**There's no minimap button.**
+Make sure "Show minimap button" is ticked in the settings. If you installed
+by hand, make sure the `Libs` folder came along.
+
 ## Contributing / Issues
 
 Found a bug or have a feature idea? Open an issue — feedback and
 suggestions welcome.
+
+If something's broken, this helps me fix it fast:
+1. Type `/console scriptErrors 1` and reproduce the problem.
+2. Copy the error text from the popup.
+3. Include the error text and your ItemWatch version in the issue.
 
 ## License
 
@@ -238,6 +282,8 @@ If ItemWatch is helping you keep your farming lazy and your crafting organized, 
 - **HandyNotes: Seeking the Soulstones** — map pins for finding the soulstones, as part of the Warlock Green Fire questchain in Outland
 - **Boomkin Buff Watcher** — keeps Balance Druids on top of their Astral Power and Eclipse state
 - **Holiday Herald** — friendly reminders when in-game holidays start, with links to their meta-achievements, goodies, secrets, and more!
+- **Pinkies Up!** — a tea-sipping fish who says grats for every achievement
+- **Chum Chimes** — a friendly chime when guildies or friends are in your zone or right near you
 
 Find them all by searching **NerdyBertie** on CurseForge, WoWInterface, WowUp, or Wago.
 
