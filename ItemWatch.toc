@@ -1,4 +1,4 @@
-## Interface: 120100, 120105, 16001
+## Interface: 120100, 120105, 120107, 16001
 ## Title: ItemWatch & Shopping List
 ## Notes: Track item counts with goals and sounds in a movable box, and build a shopping list from any crafting recipe.
 ## Author: NerdyBertie

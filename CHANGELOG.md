@@ -1,5 +1,10 @@
 # ItemWatch
 
+## v2.3.8
+
+### Changed
+- Ready for patch 12.1.7 (December 1): ItemWatch is now marked compatible, so it won't show as out of date.
+
 ## v2.3.7
 
 ### Added

@@ -2645,6 +2645,12 @@ end
 -- and lists anything older underneath in compact form.
 local CHANGELOG = {
     {
+        version = "2.3.8",
+        highlights = {
+            "Ready for patch 12.1.7 (December 1): ItemWatch is now marked compatible, so it won't show as out of date.",
+        },
+    },
+    {
         version = "2.3.7",
         highlights = {
             "The NerdyBertie page in Options > AddOns now lists Chum Chimes, a friendly chime when guildies or friends are in your zone or right near you.",

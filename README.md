@@ -276,16 +276,16 @@ MIT — see LICENSE for details.
 
 ## More from NerdyBertie
 
-If ItemWatch is helping you keep your farming lazy and your crafting organized, feel free to check out my other addons!
+If you enjoy this addon, feel free to check out my other addons!
 
-- **HandyNotes: Dive Bar Front Crawl** — map pins for every underwater Tortollan dive bar in the Dive Bar Front Crawl housing endeavor
-- **HandyNotes: Seeking the Soulstones** — map pins for finding the soulstones, as part of the Warlock Green Fire questchain in Outland
-- **Boomkin Buff Watcher** — keeps Balance Druids on top of their Astral Power and Eclipse state
-- **Holiday Herald** — friendly reminders when in-game holidays start, with links to their meta-achievements, goodies, secrets, and more!
-- **Pinkies Up!** — a tea-sipping fish who says grats for every achievement
-- **Chum Chimes** — a friendly chime when guildies or friends are in your zone or right near you
+- [Holiday Herald](https://www.curseforge.com/wow/addons/holidayherald): never miss a holiday again; tips, collectibles, quests, map pins, and secrets for every in-game holiday
+- [HandyNotes: Dive Bar Front Crawl](https://www.curseforge.com/wow/addons/handynotes-dive-bar-front-crawl): map pins for every underwater Tortollan dive bar in the Dive Bar Front Crawl housing endeavor
+- [HandyNotes: Seeking The Soulstones](https://www.curseforge.com/wow/addons/handynotes-seeking-the-soulstones): map pins for the soulstones in Outland for the Warlock Green Fire questchain
+- [Boomkin Buff Watcher](https://www.curseforge.com/wow/addons/boomkin-buff-watcher): keeps Balance Druids on top of their Astral Power and Eclipse state
+- [Chum Chimes](https://www.curseforge.com/wow/addons/chumchimes): a friendly chime when guildies or friends are in your zone or nearby
+- [Pinkies Up!](https://www.curseforge.com/wow/addons/pinkies-up): achievement gratses for everyone, with 40-plus cute sayings
 
-Find them all by searching **NerdyBertie** on CurseForge, WoWInterface, WowUp, or Wago.
+Find them all by searching NerdyBertie on CurseForge, WoWInterface, WoWUp, or Wago.
 
 ---
 
